@@ -55,12 +55,12 @@ public class UserInfoActivity extends AppCompatActivity {
         setContentView(R.layout.layout_account_info);
 
         // set indicator enable
-        Toolbar mToolbar = (Toolbar) findViewById(R.id.toolbar_actionbar);
+        Toolbar mToolbar = findViewById(R.id.toolbar_actionbar);
         setSupportActionBar(mToolbar);
         if(getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
             getSupportActionBar().setHomeButtonEnabled(true);
-            final Drawable upArrow = getResources().getDrawable(R.drawable.abc_ic_ab_back_material);
+            final Drawable upArrow = getResources().getDrawable(R.drawable.ic_svg_back);
             if(upArrow != null)
                 upArrow.setColorFilter(getResources().getColor(R.color.default_white), PorterDuff.Mode.SRC_ATOP);
             getSupportActionBar().setHomeAsUpIndicator(upArrow);
@@ -85,13 +85,13 @@ public class UserInfoActivity extends AppCompatActivity {
         }
 
         // get views
-        rivAvatar = (RoundedImageView)findViewById(R.id.user_avatar);
-        tvUserName = (TextView)findViewById(R.id.username);
-        tvNickyName = (TextView)findViewById(R.id.nickname);
-        tvScore = (TextView)findViewById(R.id.score);
-        tvExperience = (TextView)findViewById(R.id.experience);
-        tvRank = (TextView)findViewById(R.id.rank);
-        tvLogout = (TextView)findViewById(R.id.btn_logout);
+        rivAvatar = findViewById(R.id.user_avatar);
+        tvUserName = findViewById(R.id.username);
+        tvNickyName = findViewById(R.id.nickname);
+        tvScore = findViewById(R.id.score);
+        tvExperience = findViewById(R.id.experience);
+        tvRank = findViewById(R.id.rank);
+        tvLogout = findViewById(R.id.btn_logout);
 
         // sync get info
         agui = new AsyncGetUserInfo();
@@ -121,7 +121,7 @@ public class UserInfoActivity extends AppCompatActivity {
             if(params.length == 1 && params[0] == 1) {
                 // do sign, then fetch all data
                 operation = 1;
-                byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getUserSignParams());
+                byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getUserSignParams());
                 if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
                 try {
                     if(!LightTool.isInteger(new String(b))) return Wenku8Error.ErrorCode.STRING_CONVERSION_ERROR;
@@ -135,7 +135,7 @@ public class UserInfoActivity extends AppCompatActivity {
 
             try {
                 // try fetch
-                byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getUserInfoParams());
+                byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getUserInfoParams());
                 if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
 
                 String xml = new String(b, "UTF-8");
@@ -146,7 +146,7 @@ public class UserInfoActivity extends AppCompatActivity {
                         if(temp != Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) return temp; // return an error code
 
                         // rquest again
-                        b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getUserInfoParams());
+                        b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getUserInfoParams());
                         if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
                         xml = new String(b, "UTF-8");
                     }
@@ -154,7 +154,7 @@ public class UserInfoActivity extends AppCompatActivity {
                 }
 
                 Log.e("MewX", xml);
-                ui = UserInfo.parseUserInfo(new UserInfo(), xml);
+                ui = UserInfo.parseUserInfo(xml);
                 if(ui == null) return Wenku8Error.ErrorCode.XML_PARSE_FAILED;
 
                 return Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED;
@@ -248,7 +248,7 @@ public class UserInfoActivity extends AppCompatActivity {
         @Override
         protected Wenku8Error.ErrorCode doInBackground(Integer... params) {
 
-            byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getUserLogoutParams());
+            byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getUserLogoutParams());
             if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
 
             try {

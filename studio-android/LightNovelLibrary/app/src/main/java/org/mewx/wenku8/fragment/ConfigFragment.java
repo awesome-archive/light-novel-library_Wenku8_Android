@@ -1,13 +1,18 @@
 package org.mewx.wenku8.fragment;
 
-import android.content.DialogInterface;
+import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
+import android.text.Html;
+import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
+import android.text.method.LinkMovementMethod;
+import android.text.style.ClickableSpan;
+import android.text.style.URLSpan;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,9 +23,8 @@ import android.widget.Toast;
 import com.afollestad.materialdialogs.MaterialDialog;
 import com.afollestad.materialdialogs.Theme;
 import com.umeng.analytics.MobclickAgent;
-import com.umeng.onlineconfig.OnlineConfigAgent;
 
-import org.mewx.wenku8.MyApp;
+import org.mewx.wenku8.BuildConfig;
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.activity.AboutActivity;
 import org.mewx.wenku8.activity.MainActivity;
@@ -35,8 +39,10 @@ import org.mewx.wenku8.util.LightTool;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class ConfigFragment extends Fragment {
 
@@ -54,7 +60,7 @@ public class ConfigFragment extends Fragment {
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
         return inflater.inflate(R.layout.fragment_config, container, false);
@@ -65,152 +71,104 @@ public class ConfigFragment extends Fragment {
         super.onActivityCreated(savedInstanceState);
 
         // get views
-        Wenku8API.NoticeString = OnlineConfigAgent.getInstance().getConfigParams(MyApp.getContext(),
-                GlobalConfig.getCurrentLang() != Wenku8API.LANG.SC ? "wenku8_notice_tw" : "wenku8_notice"); // get each time
-        TextView tvNotice = (TextView) getActivity().findViewById(R.id.notice);
+        TextView tvNotice = Objects.requireNonNull(getActivity()).findViewById(R.id.notice);
         if(Wenku8API.NoticeString.equals(""))
             getActivity().findViewById(R.id.notice_layout).setVisibility(View.GONE);
-        else
-            tvNotice.setText("通知：\n" + Wenku8API.NoticeString);
+        else {
+            CharSequence sequence = Html.fromHtml(Wenku8API.NoticeString.trim());
+            // remove trailing spaces
+            int i = sequence.length() - 1;
+            while (i >= 0 && Character.isWhitespace(sequence.charAt(i))) i--;
+            sequence = sequence.subSequence(0, i + 1);
 
-        getActivity().findViewById(R.id.btn_choose_language).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                new MaterialDialog.Builder(getActivity())
-                        .theme(Theme.LIGHT)
-                        .title(R.string.config_choose_language)
-                        .content(R.string.dialog_content_language_tip)
-                        .items(R.array.choose_language_option)
-                        .itemsCallback(new MaterialDialog.ListCallback() {
-                            @Override
-                            public void onSelection(MaterialDialog dialog, View view, int which, CharSequence text) {
-                                switch (which) {
-                                    case 0:
-                                        // sc
-                                        if(GlobalConfig.getCurrentLang() != Wenku8API.LANG.SC) {
-                                            GlobalConfig.setCurrentLang(Wenku8API.LANG.SC);
-                                            Intent intent = new Intent();
-                                            intent.setClass(getActivity(), MainActivity.class);
-                                            startActivity(intent);
-                                            getActivity().overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
-                                            getActivity().finish(); // destroy itself
-                                        }
-                                        else
-                                            Toast.makeText(getActivity(), "Already in.", Toast.LENGTH_SHORT).show();
-                                        break;
-                                    case 1:
-                                        // tc
-                                        if(GlobalConfig.getCurrentLang() != Wenku8API.LANG.TC) {
-                                            GlobalConfig.setCurrentLang(Wenku8API.LANG.TC);
-                                            Intent intent = new Intent();
-                                            intent.setClass(getActivity(), MainActivity.class);
-                                            startActivity(intent);
-                                            getActivity().overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
-                                            getActivity().finish(); // destroy itself
-                                        }
-                                        else
-                                            Toast.makeText(getActivity(), "Already in.", Toast.LENGTH_SHORT).show();
-                                        break;
-                                }
-                            }
-                        })
-                        .show();
-            }
-        });
-        getActivity().findViewById(R.id.btn_clear_cache).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                new MaterialDialog.Builder(getActivity())
-                        .theme(Theme.LIGHT)
-                        .title(R.string.config_clear_cache)
-                        .items(R.array.wipe_cache_option)
-                        .itemsCallback(new MaterialDialog.ListCallback() {
-                            @Override
-                            public void onSelection(MaterialDialog dialog, View view, int which, CharSequence text) {
-                                switch (which) {
-                                    case 0:
-                                        // fast mode
-                                        AsyncDeleteFast adf = new AsyncDeleteFast();
-                                        adf.execute();
-                                        break;
-                                    case 1:
-                                        // slow mode
-                                        AsyncDeleteSlow ads = new AsyncDeleteSlow();
-                                        ads.execute();
-                                        break;
-                                }
-                            }
-                        })
-                        .show();
-            }
-        });
-        getActivity().findViewById(R.id.btn_navigation_drawer_wallpaper).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent(getActivity(), MenuBackgroundSelectorActivity.class);
-                startActivity(intent);
-            }
-        });
-        getActivity().findViewById(R.id.btn_check_update).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // alpha version does not contains auto-update function
-                // check for update
-                new AsyncTask<String, Integer, Integer>() {
-                    @Override
-                    protected Integer doInBackground(String... strings) {
-                        // return version code
-                        byte[] codeByte = LightNetwork.LightHttpDownload(strings[0]);
-                        if (codeByte == null) return -1;
-                        String code = new String(codeByte);
-                        Log.d("MewX", "version code: " + code);
-                        if (code.trim().isEmpty() || !TextUtils.isDigitsOnly(code.trim())) return -1;
-                        else return Integer.parseInt(code);
+            // parse html
+            SpannableStringBuilder strBuilder = new SpannableStringBuilder(sequence);
+            URLSpan[] urls = strBuilder.getSpans(0, sequence.length(), URLSpan.class);
+            for(URLSpan span : urls) {
+                int start = strBuilder.getSpanStart(span);
+                int end = strBuilder.getSpanEnd(span);
+                int flags = strBuilder.getSpanFlags(span);
+                ClickableSpan clickable = new ClickableSpan() {
+                    public void onClick(View view) {
+                        // Do something with span.getURL() to handle the link click...
+                        Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(GlobalConfig.blogPageUrl));
+                        Objects.requireNonNull(getContext()).startActivity(browserIntent);
                     }
+                };
+                strBuilder.setSpan(clickable, start, end, flags);
+                strBuilder.removeSpan(span);
+            }
+            tvNotice.setText(strBuilder);
+            tvNotice.setMovementMethod(LinkMovementMethod.getInstance());
+        }
 
-                    @Override
-                    protected void onPostExecute(Integer code) {
-                        super.onPostExecute(code);
-                        if (code == -1)
-                            Toast.makeText(getActivity(), getResources().getString(R.string.system_update_timeout), Toast.LENGTH_SHORT).show();
-                        try {
-                            int current = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0).versionCode;
-                            Log.d("MewX", "current version code: " + current);
-                            if (current >= code) {
-                                Toast.makeText(getActivity(), getResources().getString(R.string.system_update_latest_version), Toast.LENGTH_SHORT).show();
+        getActivity().findViewById(R.id.btn_choose_language).setOnClickListener(v -> new MaterialDialog.Builder(getActivity())
+                .theme(Theme.LIGHT)
+                .title(R.string.config_choose_language)
+                .content(R.string.dialog_content_language_tip)
+                .items(R.array.choose_language_option)
+                .itemsCallback((dialog, view, which, text) -> {
+                    switch (which) {
+                        case 0:
+                            // sc
+                            if(GlobalConfig.getCurrentLang() != Wenku8API.LANG.SC) {
+                                GlobalConfig.setCurrentLang(Wenku8API.LANG.SC);
+                                Intent intent = new Intent();
+                                intent.setClass(getActivity(), MainActivity.class);
+                                startActivity(intent);
+                                getActivity().overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
+                                getActivity().finish(); // destroy itself
                             }
-                            else {
-                                // update to new version
-                                new MaterialDialog.Builder(getContext())
-                                        .theme(Theme.LIGHT)
-                                        .title(R.string.system_update_found_new)
-                                        .content(R.string.system_update_jump_to_page)
-                                        .positiveText(R.string.dialog_positive_sure)
-                                        .negativeText(R.string.dialog_negative_biao)
-                                        .callback(new MaterialDialog.ButtonCallback() {
-                                            @Override
-                                            public void onPositive(MaterialDialog dialog) {
-                                                super.onPositive(dialog);
-                                                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("http://wenku8.mewx.org/"));
-                                                startActivity(browserIntent);
-                                            }
-                                        })
-                                        .show();
-
+                            else
+                                Toast.makeText(getActivity(), "Already in.", Toast.LENGTH_SHORT).show();
+                            break;
+                        case 1:
+                            // tc
+                            if(GlobalConfig.getCurrentLang() != Wenku8API.LANG.TC) {
+                                GlobalConfig.setCurrentLang(Wenku8API.LANG.TC);
+                                Intent intent = new Intent();
+                                intent.setClass(getActivity(), MainActivity.class);
+                                startActivity(intent);
+                                getActivity().overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
+                                getActivity().finish(); // destroy itself
                             }
-                        } catch (PackageManager.NameNotFoundException e) {
-                            e.printStackTrace();
-                        }
+                            else
+                                Toast.makeText(getActivity(), "Already in.", Toast.LENGTH_SHORT).show();
+                            break;
                     }
-                }.execute("http://wenku8.mewx.org/version");
-            }
+                })
+                .show());
+        getActivity().findViewById(R.id.btn_clear_cache).setOnClickListener(v -> new MaterialDialog.Builder(getActivity())
+                .theme(Theme.LIGHT)
+                .title(R.string.config_clear_cache)
+                .items(R.array.wipe_cache_option)
+                .itemsCallback((dialog, view, which, text) -> {
+                    switch (which) {
+                        case 0:
+                            // fast mode
+                            AsyncDeleteFast adf = new AsyncDeleteFast(getActivity());
+                            adf.execute();
+                            break;
+                        case 1:
+                            // slow mode
+                            AsyncDeleteSlow ads = new AsyncDeleteSlow(getActivity());
+                            ads.execute();
+                            break;
+                    }
+                })
+                .show());
+        getActivity().findViewById(R.id.btn_navigation_drawer_wallpaper).setOnClickListener(v -> {
+            Intent intent = new Intent(getActivity(), MenuBackgroundSelectorActivity.class);
+            startActivity(intent);
         });
-        getActivity().findViewById(R.id.btn_about).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent(getActivity(), AboutActivity.class);
-                startActivity(intent);
-            }
+        getActivity().findViewById(R.id.btn_check_update).setOnClickListener(v -> {
+            // alpha version does not contains auto-update function
+            // check for update
+            new CheckNewVersion(getActivity()).execute(GlobalConfig.versionCheckUrl);
+        });
+        getActivity().findViewById(R.id.btn_about).setOnClickListener(v -> {
+            Intent intent = new Intent(getActivity(), AboutActivity.class);
+            startActivity(intent);
         });
     }
 
@@ -231,18 +189,27 @@ public class ConfigFragment extends Fragment {
         MobclickAgent.onPageStart("ConfigFragment");
     }
 
-    private class AsyncDeleteFast extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
+    private static class AsyncDeleteFast extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
+        private WeakReference<Context> contextWeakReference;
         private MaterialDialog md;
+
+        AsyncDeleteFast(Context context) {
+            this.contextWeakReference = new WeakReference<>(context);
+        }
+
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
-            md = new MaterialDialog.Builder(getActivity())
-                    .theme(Theme.LIGHT)
-                    .title(R.string.config_clear_cache)
-                    .content(R.string.dialog_content_wipe_cache_fast)
-                    .progress(true, 0)
-                    .cancelable(false)
-                    .show();
+            Context ctx = contextWeakReference.get();
+            if (ctx != null) {
+                md = new MaterialDialog.Builder(ctx)
+                        .theme(Theme.LIGHT)
+                        .title(R.string.config_clear_cache)
+                        .content(R.string.dialog_content_wipe_cache_fast)
+                        .progress(true, 0)
+                        .cancelable(false)
+                        .show();
+            }
         }
 
         @Override
@@ -253,11 +220,11 @@ public class ConfigFragment extends Fragment {
             File[] childFile = dir.listFiles();
             if(childFile != null && childFile.length != 0) {
                 for (File f : childFile) {
-                    String[] temp = f.getAbsolutePath().split("\\/");
+                    String[] temp = f.getAbsolutePath().split("/");
                     if(temp.length != 0) {
                         String id = temp[temp.length - 1].split("\\.")[0];
-                        if(LightTool.isInteger(id) && !GlobalConfig.testInLocalBookshelf(Integer.parseInt(id)))
-                            f.delete(); // ignore ".nomedia"
+                        if(LightTool.isInteger(id) && !GlobalConfig.testInLocalBookshelf(Integer.parseInt(id)) && !f.delete())
+                            Log.d(ConfigFragment.class.getSimpleName(), "Failed to delete file: " + f.getAbsolutePath()); // ignore ".nomedia"
                     }
                 }
             }
@@ -268,7 +235,8 @@ public class ConfigFragment extends Fragment {
             childFile = dir.listFiles();
             if(childFile != null && childFile.length != 0) {
                 for (File f : childFile) {
-                    f.delete();
+                    if (!f.delete())
+                        Log.d(ConfigFragment.class.getSimpleName(), "Failed to delete file: " + f.getAbsolutePath());
                 }
             }
             return Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED;
@@ -278,30 +246,88 @@ public class ConfigFragment extends Fragment {
         protected void onPostExecute(Wenku8Error.ErrorCode errorCode) {
             super.onPostExecute(errorCode);
             if(md != null) md.dismiss();
-            Toast.makeText(getActivity(), "OK", Toast.LENGTH_SHORT).show();
+
+            Context ctx = contextWeakReference.get();
+            if (ctx != null) {
+                Toast.makeText(ctx, "OK", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
-    private class AsyncDeleteSlow extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
+    private static class CheckNewVersion extends AsyncTask<String, Integer, Integer> {
+        private WeakReference<Context> contextWeakReference;
+
+        CheckNewVersion(Context context) {
+            this.contextWeakReference = new WeakReference<>(context);
+        }
+
+        @Override
+        protected Integer doInBackground(String... strings) {
+            // return version code
+            byte[] codeByte = LightNetwork.LightHttpDownload(strings[0]);
+            if (codeByte == null) return -1;
+            String code = new String(codeByte).trim();
+            Log.d("MewX", "version code: " + code);
+            if (code.isEmpty() || !TextUtils.isDigitsOnly(code)) return -1;
+            else return Integer.parseInt(code);
+        }
+
+        @Override
+        protected void onPostExecute(Integer code) {
+            super.onPostExecute(code);
+
+            Context ctx = contextWeakReference.get();
+            if (ctx == null) return;
+
+            if (code == -1)
+                Toast.makeText(ctx, ctx.getResources().getString(R.string.system_update_timeout), Toast.LENGTH_SHORT).show();
+
+            int current = BuildConfig.VERSION_CODE;
+            if (current >= code) {
+                Toast.makeText(ctx, ctx.getResources().getString(R.string.system_update_latest_version), Toast.LENGTH_SHORT).show();
+            } else {
+                // update to new version
+                new MaterialDialog.Builder(ctx)
+                        .theme(Theme.LIGHT)
+                        .title(R.string.system_update_found_new)
+                        .content(R.string.system_update_jump_to_page)
+                        .positiveText(R.string.dialog_positive_sure)
+                        .negativeText(R.string.dialog_negative_biao)
+                        .onPositive((dialog, which) -> {
+                            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(GlobalConfig.blogPageUrl));
+                            ctx.startActivity(browserIntent);
+                        })
+                        .show();
+            }
+        }
+    }
+
+    private static class AsyncDeleteSlow extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
+        private WeakReference<Context> contextWeakReference;
         private MaterialDialog md;
         private boolean isLoading = false;
+
+        AsyncDeleteSlow(Context context) {
+            this.contextWeakReference = new WeakReference<>(context);
+        }
+
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
-            md = new MaterialDialog.Builder(getActivity())
-                    .theme(Theme.LIGHT)
-                    .cancelListener(new DialogInterface.OnCancelListener() {
-                        @Override
-                        public void onCancel(DialogInterface dialog) {
+            Context ctx = contextWeakReference.get();
+            if (ctx != null) {
+                md = new MaterialDialog.Builder(Objects.requireNonNull(ctx))
+                        .theme(Theme.LIGHT)
+                        .cancelListener(dialog -> {
                             isLoading = false;
                             AsyncDeleteSlow.this.cancel(true);
-                        }
-                    })
-                    .title(R.string.config_clear_cache)
-                    .content(R.string.dialog_content_wipe_cache_slow)
-                    .progress(true, 0)
-                    .cancelable(true)
-                    .show();
+                        })
+                        .title(R.string.config_clear_cache)
+                        .content(R.string.dialog_content_wipe_cache_slow)
+                        .progress(true, 0)
+                        .cancelable(true)
+                        .show();
+            }
             isLoading = true;
         }
 
@@ -313,11 +339,11 @@ public class ConfigFragment extends Fragment {
             File[] childFile = dir.listFiles();
             if(childFile != null && childFile.length != 0) {
                 for (File f : childFile) {
-                    String[] temp = f.getAbsolutePath().split("\\/");
+                    String[] temp = f.getAbsolutePath().split("/");
                     if(temp.length != 0) {
                         String id = temp[temp.length - 1].split("\\.")[0];
-                        if(LightTool.isInteger(id) && !GlobalConfig.testInLocalBookshelf(Integer.parseInt(id)))
-                            f.delete(); // ignore ".nomedia"
+                        if(LightTool.isInteger(id) && !GlobalConfig.testInLocalBookshelf(Integer.parseInt(id)) && !f.delete())
+                            Log.d(ConfigFragment.class.getSimpleName(), "Failed to delete file: " + f.getAbsolutePath()); // ignore ".nomedia"
                     }
                 }
             }
@@ -327,7 +353,10 @@ public class ConfigFragment extends Fragment {
             if(!dir.exists()) dir = new File(GlobalConfig.getSecondStoragePath() + "cache");
             childFile = dir.listFiles();
             if(childFile != null && childFile.length != 0) {
-                for (File f : childFile) f.delete();
+                for (File f : childFile) {
+                    if (!f.delete())
+                        Log.d(ConfigFragment.class.getSimpleName(), "Failed to delete file: " + f.getAbsolutePath());
+                }
             }
             if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
 
@@ -352,15 +381,16 @@ public class ConfigFragment extends Fragment {
 
             // loop for images
             dir = new File(GlobalConfig.getFirstFullSaveFilePath() + "imgs");
-            if(!dir.exists()) dir = new File(GlobalConfig.getSecondFullSaveFilePath() + "imgs");
+            if (!dir.exists()) dir = new File(GlobalConfig.getSecondFullSaveFilePath() + "imgs");
             childFile = dir.listFiles();
-            if(childFile != null && childFile.length != 0) {
+            if (childFile != null && childFile.length != 0) {
                 for (File f : childFile) {
-                    if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
-                    String[] temp = f.getAbsolutePath().split("\\/");
-                    if(temp.length != 0) {
+                    if (!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
+                    String[] temp = f.getAbsolutePath().split("/");
+                    if (temp.length != 0) {
                         String name = temp[temp.length - 1];
-                        if(!listPicture.contains(name)) f.delete();
+                        if (!listPicture.contains(name) && !f.delete())
+                            Log.d(ConfigFragment.class.getSimpleName(), "Failed to delete file: " + f.getAbsolutePath());
                     }
                 }
             }
@@ -371,13 +401,15 @@ public class ConfigFragment extends Fragment {
         protected void onPostExecute(Wenku8Error.ErrorCode errorCode) {
             super.onPostExecute(errorCode);
             isLoading = false;
-            if(md != null) md.dismiss();
+            if (md != null) md.dismiss();
 
-            if(errorCode == Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
-                Toast.makeText(getActivity(), "OK", Toast.LENGTH_SHORT).show();
-            }
-            else {
-                Toast.makeText(getActivity(), errorCode.toString(), Toast.LENGTH_SHORT).show();
+            Context ctx = contextWeakReference.get();
+            if (ctx == null) return;
+
+            if (errorCode == Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
+                Toast.makeText(ctx, "OK", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(ctx, errorCode.toString(), Toast.LENGTH_SHORT).show();
             }
         }
     }

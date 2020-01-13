@@ -1,5 +1,8 @@
 package org.mewx.wenku8.global.api;
 
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
@@ -10,35 +13,35 @@ import java.io.StringReader;
  * The updated version of novel item info.
  */
 public class NovelItemInfoUpdate {
-    private final String LoadingString = "Loading...";
+    private static final String LOADING_STRING = "Loading...";
 
     // Variables
-    public int aid = 0;
-    public String title = LoadingString;
-    public String author = LoadingString;
-    public String status = LoadingString;
-    public String update = LoadingString; // last update time
-    public String intro_short = LoadingString;
-    public boolean isLoading = false;
-
-    public String intro_full = ""; // not necessary
-    public boolean imageReady = false; // image
+    public int aid;
+    public String title;
+    public String author = LOADING_STRING;
+    public String status = LOADING_STRING;
+    public String update = LOADING_STRING; // last update time
+    public String intro_short = LOADING_STRING;
+    public String latest_chapter = LOADING_STRING; // only used in bookshelf
 
     // static function
-    public static NovelItemInfoUpdate convertFromMeta(NovelItemMeta nim) {
+    @NonNull
+    public static NovelItemInfoUpdate convertFromMeta(@NonNull NovelItemMeta nim) {
         NovelItemInfoUpdate niiu = new NovelItemInfoUpdate(0);
-        niiu.aid = nim.aid;
         niiu.title = nim.title;
+        niiu.aid = nim.aid;
         niiu.author = nim.author;
         niiu.status = nim.bookStatus;
         niiu.update = nim.lastUpdate;
+        niiu.latest_chapter = nim.latestSectionName;
 
         return niiu;
     }
 
-    public static NovelItemInfoUpdate parse(String xml) {
-        NovelItemInfoUpdate niiu = new NovelItemInfoUpdate(0);
+    @Nullable
+    public static NovelItemInfoUpdate parse(@NonNull String xml) {
         try {
+            NovelItemInfoUpdate niiu = new NovelItemInfoUpdate(0);
             XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
             XmlPullParser xmlPullParser = factory.newPullParser();
             xmlPullParser.setInput(new StringReader(xml));
@@ -59,7 +62,7 @@ public class NovelItemInfoUpdate {
                             niiu.status = "";
                             niiu.update = "";
                             niiu.intro_short = "";
-                            niiu.intro_full = "";
+                            niiu.latest_chapter = "";
 
                         } else if ("data".equals(xmlPullParser.getName())) {
                             if ("Title".equals(xmlPullParser.getAttributeValue(0))) {
@@ -97,10 +100,4 @@ public class NovelItemInfoUpdate {
         this.title = Integer.toString(aid);
     }
 
-    /**
-     * "get" functions
-     */
-    public void setIntroFull(String str) {
-        intro_full = str;
-    }
 }

@@ -6,8 +6,8 @@ import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Environment;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
 import android.util.Log;
 
 import com.android.volley.Cache;
@@ -43,6 +43,13 @@ import java.util.ArrayList;
 @SuppressWarnings({"UnusedDeclaration"})
 public class GlobalConfig {
 
+    // online arguments
+    public static final String blogPageUrl = "https://wenku8.mewx.org/";
+    public static final String versionCheckUrl = "https://wenku8.mewx.org/version";
+    public static final String noticeCheckSc = "https://wenku8.mewx.org/args/notice_sc";
+    public static final String noticeCheckTc = "https://wenku8.mewx.org/args/notice_tc";
+
+    // constants
     public static final String saveFolderName = "saves";
     public static final String imgsSaveFolderName = "imgs";
     public static final String customFolderName = "custom";
@@ -53,7 +60,11 @@ public class GlobalConfig {
     private static final String saveSetting = "settings.wk8";
     private static final String saveUserAccountFileName = "cert.wk8"; // certification file
     private static final String saveUserAvatarFileName = "avatar.jpg";
+    private static final String saveNoticeString = "notice.wk8"; // the notice cache from online
     private static int maxSearchHistory = 20; // default
+
+    // reserved constants
+    public static final String UNKNOWN = "Unknown";
 
     // vars
     private static boolean isInBookshelf = false;
@@ -264,18 +275,19 @@ public class GlobalConfig {
      */
     public static String generateImageFileNameByURL(String url) {
         String[] s = url.split("/");
-        String result = "";
+        StringBuilder result = new StringBuilder();
         boolean canStart = false;
         for (String temp : s) {
             if (!canStart && temp.contains("."))
                 canStart = true; // judge canStart first
             else if (canStart)
-                result += temp;
+                result.append(temp);
         }
-        return result;
+        return result.toString();
     }
 
-    private static String loadFullSaveFileContent(String FileName) {
+    @NonNull
+    private static String loadFullSaveFileContent(@NonNull String FileName) {
         // get full file in file save path
         String h = "";
         if (LightCache.testFileExist(getFirstStoragePath() + saveFolderName + File.separator + FileName)) {
@@ -300,7 +312,7 @@ public class GlobalConfig {
         return h;
     }
 
-    private static boolean writeFullSaveFileContent(String FileName, String s) {
+    private static boolean writeFullSaveFileContent(String FileName, @NonNull String s) {
         // process path and filename
         String path = "", fileName = FileName;
         if (FileName.contains(File.separator)) {
@@ -316,6 +328,7 @@ public class GlobalConfig {
         return true;
     }
 
+    @NonNull
     public static String loadFullFileFromSaveFolder(String subFolderName, String fileName) {
         return loadFullSaveFileContent(subFolderName + File.separator
                 + fileName);
@@ -454,13 +467,13 @@ public class GlobalConfig {
 
     public static void writeSearchHistory() {
         // [0what][1what]...
-        String temp = "";
+        StringBuilder temp = new StringBuilder();
         for (int i = 0; i < searchHistory.size(); i++) {
-            temp += "[" + searchHistory.get(i) + "]";
+            temp.append("[").append(searchHistory.get(i)).append("]");
         }
 
         // write file
-        writeFullSaveFileContent(saveSearchHistoryFileName, temp);
+        writeFullSaveFileContent(saveSearchHistoryFileName, temp.toString());
     }
 
     public static ArrayList<String> getSearchHistory() {
@@ -571,15 +584,16 @@ public class GlobalConfig {
         if (readSaves == null)
             loadReadSaves();
 
-        String t = "";
+        StringBuilder t = new StringBuilder();
         for (int i = 0; i < readSaves.size(); i++) {
             if (i != 0)
-                t += "||";
-            t += readSaves.get(i).cid + ",," + readSaves.get(i).pos + ",,"
-                    + readSaves.get(i).height;
+                t.append("||");
+            t.append(readSaves.get(i).cid).append(",,")
+                    .append(readSaves.get(i).pos).append(",,")
+                    .append(readSaves.get(i).height);
         }
 
-        writeFullSaveFileContent(saveReadSavesFileName, t);
+        writeFullSaveFileContent(saveReadSavesFileName, t.toString());
     }
 
     public static void addReadSavesRecord(int c, int p, int h) {
@@ -664,14 +678,17 @@ public class GlobalConfig {
         if (readSavesV1 == null)
             loadReadSavesV1();
 
-        String t = "";
+        StringBuilder t = new StringBuilder();
         for (int i = 0; i < readSavesV1.size(); i++) {
             if (i != 0)
-                t += "||";
-            t += readSavesV1.get(i).aid + ":" + readSavesV1.get(i).vid + ":" + readSavesV1.get(i).cid + ":"
-                    + readSavesV1.get(i).lineId + ":" + readSavesV1.get(i).wordId;
+                t.append("||");
+            t.append(readSavesV1.get(i).aid).append(":")
+                    .append(readSavesV1.get(i).vid).append(":")
+                    .append(readSavesV1.get(i).cid).append(":")
+                    .append(readSavesV1.get(i).lineId).append(":")
+                    .append(readSavesV1.get(i).wordId);
         }
-        writeFullSaveFileContent(saveReadSavesV1FileName, t);
+        writeFullSaveFileContent(saveReadSavesV1FileName, t.toString());
     }
 
     public static void addReadSavesRecordV1(int aid, int vid, int cid, int lineId, int wordId) {
@@ -745,12 +762,12 @@ public class GlobalConfig {
     public static void saveAllSetting() {
         if(allSetting == null) loadAllSetting();
 
-        String result = "";
+        StringBuilder result = new StringBuilder();
         for( String key : allSetting.keySet() ) {
-            if(!result.equals("")) result = result + "||||";
-            result = result + key + "::::" + allSetting.getAsString(key);
+            if(!result.toString().equals("")) result.append("||||");
+            result.append(key).append("::::").append(allSetting.getAsString(key));
         }
-        writeFullSaveFileContent(saveSetting, result);
+        writeFullSaveFileContent(saveSetting, result.toString());
     }
 
     @Nullable
@@ -769,7 +786,7 @@ public class GlobalConfig {
     }
 
 
-    /** Novel content */
+    /* Novel content */
     /**
      * saveNovelContentImage:
      *
@@ -834,17 +851,22 @@ public class GlobalConfig {
 
 
     public static boolean isNetworkAvailable(Context context) {
-        ConnectivityManager cm = (ConnectivityManager) context
-                .getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm != null) {
-            NetworkInfo[] info = cm.getAllNetworkInfo();
-            if (info != null) {
-                for(NetworkInfo ni : info) {
-                    if (ni.getState() == NetworkInfo.State.CONNECTED)
-                        return true;
-                }
-            }
+            // connected
+            NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+            return activeNetwork != null;
         }
-        return false;
+        return false; // not connected
+    }
+
+    /* notice */
+    @NonNull
+    public static String loadSavedNotice() {
+        return loadFullSaveFileContent(saveNoticeString);
+    }
+
+    public static void writeTheNotice(@NonNull String noticeStr) {
+        writeFullSaveFileContent(saveNoticeString, noticeStr);
     }
 }
