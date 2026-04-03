@@ -25,7 +25,8 @@ public class WenkuReaderSettingV1 {
     }
 
     // global settings
-    public final int fontColorLight = Color.parseColor("#32414E"); // for dark background (ARGB)
+    // Useful tool: https://www.w3schools.com/colors/colors_picker.asp
+    public final int fontColorLight = Color.parseColor("#A2B4C3"); // for dark background (ARGB)
     public final int fontColorDark = Color.parseColor("#444444"); // for light background
     public final int bgColorLight = Color.parseColor("#CFBEB6");
     public final int bgColorDark = Color.parseColor("#090C13");
@@ -40,12 +41,11 @@ public class WenkuReaderSettingV1 {
     // paragraph setting
     private int lineDistance = 16; // in "dp"
     private int paragraphDistance = 20; // in "dp"
-    private int paragraghEdgeDistance = 8; // in "dp", text part edge distance (left&right)
 
     // page setting
-    private int pageEdgeDistance = 8; // in "dp", top&right&bottom&left 4 directions distances to screen edge, and paragraph to side view widgets
+    private int pageEdgeDistance = 8; // in "dp", page edge distance
     private PAGE_BACKGROUND_TYPE pageBackgroundType = PAGE_BACKGROUND_TYPE.SYSTEM_DEFAULT;
-    private String pageBackgrounCustomPath = "";
+    private String pageBackgroundCustomPath = "";
 
 
     /**
@@ -80,8 +80,8 @@ public class WenkuReaderSettingV1 {
         size = GlobalConfig.getFromAllSetting(GlobalConfig.SettingItems.reader_paragraph_edge_distance);
         if(size != null && LightTool.isInteger(size)) {
             int temp = Integer.parseInt(size);
-            if(0 <= temp && temp <= 16)
-                paragraghEdgeDistance = temp;
+            if(0 <= temp && temp <= 32)
+                pageEdgeDistance = temp;
         }
 
         // background path
@@ -92,7 +92,7 @@ public class WenkuReaderSettingV1 {
             }
             else if(LightCache.testFileExist(size)) {
                 pageBackgroundType = PAGE_BACKGROUND_TYPE.CUSTOM;
-                pageBackgrounCustomPath = size;
+                pageBackgroundCustomPath = size;
             }
         }
 
@@ -161,17 +161,9 @@ public class WenkuReaderSettingV1 {
         return paragraphDistance;
     }
 
-    public void setParagraphEdgeDistance(int l) {
-        paragraghEdgeDistance = l;
-        GlobalConfig.setToAllSetting(GlobalConfig.SettingItems.reader_paragraph_edge_distance, Integer.toString(l));
-    }
-
-    public int getParagraghEdgeDistance() {
-        return paragraghEdgeDistance;
-    }
-
     public void setPageEdgeDistance(int l) {
         pageEdgeDistance = l;
+        GlobalConfig.setToAllSetting(GlobalConfig.SettingItems.reader_paragraph_edge_distance, Integer.toString(l));
     }
 
     public int getPageEdgeDistance() {
@@ -188,13 +180,12 @@ public class WenkuReaderSettingV1 {
     }
 
     public void setPageBackgroundCustomPath(String s) {
-        pageBackgrounCustomPath = s;
-        if(s.equals("0")) pageBackgroundType = PAGE_BACKGROUND_TYPE.SYSTEM_DEFAULT;
-        else pageBackgroundType = PAGE_BACKGROUND_TYPE.CUSTOM;
+        pageBackgroundCustomPath = s;
+        pageBackgroundType = s.equals("0") ? PAGE_BACKGROUND_TYPE.SYSTEM_DEFAULT : PAGE_BACKGROUND_TYPE.CUSTOM;
         GlobalConfig.setToAllSetting(GlobalConfig.SettingItems.reader_background_path, s);
     }
 
-    public String getPageBackgrounCustomPath() {
-        return pageBackgrounCustomPath;
+    public String getPageBackgroundCustomPath() {
+        return pageBackgroundCustomPath;
     }
 }

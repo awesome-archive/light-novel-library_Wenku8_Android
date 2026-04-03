@@ -5,15 +5,11 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.os.Environment;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
 import android.util.Log;
 
-import com.android.volley.Cache;
-import com.android.volley.Network;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.Volley;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import com.nostra13.universalimageloader.cache.disc.impl.UnlimitedDiscCache;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.ImageLoader;
@@ -22,10 +18,12 @@ import com.nostra13.universalimageloader.core.display.FadeInBitmapDisplayer;
 
 import org.mewx.wenku8.MyApp;
 import org.mewx.wenku8.R;
-import org.mewx.wenku8.global.api.Wenku8API;
+import org.mewx.wenku8.api.Wenku8API;
+import org.mewx.wenku8.network.LightUserSession;
 import org.mewx.wenku8.util.LightCache;
-import org.mewx.wenku8.util.LightNetwork;
+import org.mewx.wenku8.network.LightNetwork;
 import org.mewx.wenku8.util.LightTool;
+import org.mewx.wenku8.util.SaveFileMigration;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -43,6 +41,13 @@ import java.util.ArrayList;
 @SuppressWarnings({"UnusedDeclaration"})
 public class GlobalConfig {
 
+    // online arguments
+    public static final String blogPageUrl = "https://wenku8.mewx.org/";
+    public static final String versionCheckUrl = "https://wenku8.mewx.org/version";
+    public static final String noticeCheckSc = "https://wenku8.mewx.org/args/notice_sc";
+    public static final String noticeCheckTc = "https://wenku8.mewx.org/args/notice_tc";
+
+    // constants
     public static final String saveFolderName = "saves";
     public static final String imgsSaveFolderName = "imgs";
     public static final String customFolderName = "custom";
@@ -53,14 +58,16 @@ public class GlobalConfig {
     private static final String saveSetting = "settings.wk8";
     private static final String saveUserAccountFileName = "cert.wk8"; // certification file
     private static final String saveUserAvatarFileName = "avatar.jpg";
+    private static final String saveNoticeString = "notice.wk8"; // the notice cache from online
     private static int maxSearchHistory = 20; // default
 
     // vars
+    private static boolean lookupInternalStorageOnly = false;
     private static boolean isInBookshelf = false;
     private static boolean isInLatest = false;
     private static boolean doLoadImage = true;
-    private static boolean FirstStoragePathStatus = true;
-    private static Wenku8API.LANG currentLang = Wenku8API.LANG.SC;
+    private static boolean externalStoragePathAvailable = true;
+    private static Wenku8API.AppLanguage currentLang = Wenku8API.AppLanguage.SC;
     public static String pathPickedSave; // dir picker save path
 
     // static variables
@@ -95,55 +102,46 @@ public class GlobalConfig {
         reader_font_size, // (int) sp (8 - 32)
         reader_line_distance, // (int) dp (0 - 32)
         reader_paragraph_distance, // (int) dp (0 - 48)
-        reader_paragraph_edge_distance, // (int) dp (0 - 16)
+        reader_paragraph_edge_distance, // (int) dp (0 - 32)
         reader_background_path, // (String) path to an image, day mode only, "0" means default
+        eink_mode, // (int) 1 - ON; 0 - OFF.
     }
 
     // sets and gets
-    public static void setCurrentLang(Wenku8API.LANG l) {
+    public static void setCurrentLang(Wenku8API.AppLanguage l) {
         currentLang = l;
+        // FIXME
+        Wenku8API.CurrentLang = currentLang;
         setToAllSetting(SettingItems.language, currentLang.toString());
     }
 
-    public static Wenku8API.LANG getCurrentLang() {
+    public static Wenku8API.AppLanguage getCurrentLang() {
         String temp = getFromAllSetting(SettingItems.language);
         if(temp == null) {
             setToAllSetting(SettingItems.language, currentLang.toString());
         }
         else if(!temp.equals(currentLang.toString())) {
-            if(temp.equals(Wenku8API.LANG.SC.toString()))
-                currentLang = Wenku8API.LANG.SC;
-            else if(temp.equals(Wenku8API.LANG.TC.toString()))
-                currentLang = Wenku8API.LANG.TC;
+            if(temp.equals(Wenku8API.AppLanguage.SC.toString()))
+                currentLang = Wenku8API.AppLanguage.SC;
+            else if(temp.equals(Wenku8API.AppLanguage.TC.toString()))
+                currentLang = Wenku8API.AppLanguage.TC;
             else
-                currentLang = Wenku8API.LANG.SC;
+                currentLang = Wenku8API.AppLanguage.SC;
         }
+        // FIXME
+        Wenku8API.CurrentLang = currentLang;
         return currentLang;
     }
 
-    // external libs
-    private static Cache volleyCache = null;
-    private static Network volleyNetwork = null;
-    public static RequestQueue volleyRequestQueue = null;
-
-    // global configs, need to call first
-    public static void initVolleyNetwork() {
-        if(volleyRequestQueue!=null)
-            return;
-
-//        volleyCache = new DiskBasedCache(new File(getSecondStoragePath()), 1024 * 1024); // 1MB cap
-//        volleyNetwork = new BasicNetwork(new HurlStack());
-//        volleyRequestQueue = new RequestQueue(volleyCache, volleyNetwork);
-        volleyRequestQueue = Volley.newRequestQueue(MyApp.getContext());
-
-        if(volleyRequestQueue == null) {
-            Log.e("MewX", "GlobalConfig:initVolleyNetwork volleyRequestQueue is NULL");
-        }
+    public static boolean isEinkModeEnabled() {
+        String einkMode = getFromAllSetting(SettingItems.eink_mode);
+        return einkMode != null && Integer.parseInt(einkMode) == 1;
     }
 
     public static void initImageLoader(Context context) {
         UnlimitedDiscCache localUnlimitedDiscCache = new UnlimitedDiscCache(
-                new File(GlobalConfig.getFirstStoragePath() + "cache"),
+                new File(GlobalConfig.getDefaultStoragePath() + "cache"),
+                // FIXME: these imgs folders are actually no in use.
                 new File(context.getCacheDir() + File.separator + "imgs"));
         DisplayImageOptions localDisplayImageOptions = new DisplayImageOptions.Builder()
                 .resetViewBeforeLoading(true)
@@ -183,26 +181,27 @@ public class GlobalConfig {
 
 
     /**
-     * 设置第一存储路径的合法性（）第一路径可以只有设置
-     * @param a true-合法可以使用; false-不能使用，只能只用第二路径
+     * 设置第一存储路径的合法性（第一路径可以只有设置）
+     * @param available true-合法可以使用; false-不能使用，只能只用第二路径
      */
-    public static void setFirstStoragePathStatus( boolean a ) {
-
-    }
-
-    public static String getFirstStoragePath() {
-        return Environment.getExternalStorageDirectory() + File.separator
-                + "wenku8" + File.separator;
-    }
-
-    public static String getSecondStoragePath() {
-        return MyApp.getContext().getFilesDir() + File.separator;
+    public static void setExternalStoragePathAvailable(boolean available) {
+        externalStoragePathAvailable = available;
     }
 
     public static String getDefaultStoragePath() {
-        return FirstStoragePathStatus ? getFirstStoragePath() : getSecondStoragePath();
+        // The lookupInternalStorageOnly flag has the highest priority.
+        if (lookupInternalStorageOnly || !externalStoragePathAvailable) {
+            return SaveFileMigration.getInternalSavePath();
+        }
+        return SaveFileMigration.getExternalStoragePath();
     }
 
+    // TODO: get rid of this shortcut.
+    public static String getBackupStoragePath() {
+        String internalPath = SaveFileMigration.getInternalSavePath();
+        return getDefaultStoragePath().equals(internalPath) ?
+                SaveFileMigration.getExternalStoragePath() : internalPath;
+    }
 
     public static boolean doCacheImage() {
         // for non-image mode
@@ -233,12 +232,13 @@ public class GlobalConfig {
         return 2;
     }
 
+    // TODO: get rid of those ugly shortcuts.
     public static String getFirstFullSaveFilePath() {
-        return getFirstStoragePath() + saveFolderName + File.separator;
+        return getDefaultStoragePath() + saveFolderName + File.separator;
     }
 
     public static String getSecondFullSaveFilePath() {
-        return getSecondStoragePath() + saveFolderName + File.separator;
+        return getBackupStoragePath() + saveFolderName + File.separator;
     }
 
     public static String getFirstFullUserAccountSaveFilePath() {
@@ -264,32 +264,33 @@ public class GlobalConfig {
      */
     public static String generateImageFileNameByURL(String url) {
         String[] s = url.split("/");
-        String result = "";
+        StringBuilder result = new StringBuilder();
         boolean canStart = false;
         for (String temp : s) {
             if (!canStart && temp.contains("."))
                 canStart = true; // judge canStart first
             else if (canStart)
-                result += temp;
+                result.append(temp);
         }
-        return result;
+        return result.toString();
     }
 
-    private static String loadFullSaveFileContent(String FileName) {
+    @NonNull
+    private static String loadFullSaveFileContent(@NonNull String FileName) {
         // get full file in file save path
         String h = "";
-        if (LightCache.testFileExist(getFirstStoragePath() + saveFolderName + File.separator + FileName)) {
+        if (LightCache.testFileExist(getDefaultStoragePath() + saveFolderName + File.separator + FileName)) {
             try {
-                byte[] b = LightCache.loadFile(getFirstStoragePath() + saveFolderName + File.separator + FileName);
+                byte[] b = LightCache.loadFile(getDefaultStoragePath() + saveFolderName + File.separator + FileName);
                 if(b == null) return "";
                 h = new String(b, "UTF-8");
             } catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
             }
 
-        } else if (LightCache.testFileExist(getSecondStoragePath() + saveFolderName + File.separator + FileName)) {
+        } else if (LightCache.testFileExist(getBackupStoragePath() + saveFolderName + File.separator + FileName)) {
             try {
-                byte[] b = LightCache.loadFile(getSecondStoragePath() + saveFolderName + File.separator + FileName);
+                byte[] b = LightCache.loadFile(getBackupStoragePath() + saveFolderName + File.separator + FileName);
                 if(b == null) return "";
                 h = new String(b, "UTF-8");
             } catch (UnsupportedEncodingException e) {
@@ -300,7 +301,7 @@ public class GlobalConfig {
         return h;
     }
 
-    private static boolean writeFullSaveFileContent(String FileName, String s) {
+    private static boolean writeFullSaveFileContent(String FileName, @NonNull String s) {
         // process path and filename
         String path = "", fileName = FileName;
         if (FileName.contains(File.separator)) {
@@ -310,12 +311,13 @@ public class GlobalConfig {
         }
 
         // write save file in save path
-        if (!LightCache.saveFile(getFirstStoragePath() + saveFolderName + File.separator + path, fileName, s.getBytes(), true)) // if not exist
-            return LightCache.saveFile(getSecondStoragePath() + saveFolderName
+        if (!LightCache.saveFile(getDefaultStoragePath() + saveFolderName + File.separator + path, fileName, s.getBytes(), true)) // if not exist
+            return LightCache.saveFile(getBackupStoragePath() + saveFolderName
                     + File.separator + path, fileName, s.getBytes(), true);
         return true;
     }
 
+    @NonNull
     public static String loadFullFileFromSaveFolder(String subFolderName, String fileName) {
         return loadFullSaveFileContent(subFolderName + File.separator
                 + fileName);
@@ -337,7 +339,7 @@ public class GlobalConfig {
         String h = loadFullSaveFileContent(saveLocalBookshelfFileName);
         String[] p = h.split("\\|\\|"); // regular expression
         for (String t : p) {
-            if (t.equals(""))
+            if (t.isEmpty())
                 continue;
             bookshelf.add(Integer.valueOf(t));
         }
@@ -347,33 +349,34 @@ public class GlobalConfig {
         if (bookshelf == null)
             loadLocalBookShelf();
 
-        String s = "";
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < bookshelf.size(); i++) {
             if (i != 0)
-                s += "||";
-            s += bookshelf.get(i);
+                sb.append("||");
+            sb.append(bookshelf.get(i));
         }
-
-        writeFullSaveFileContent(saveLocalBookshelfFileName, s);
+        writeFullSaveFileContent(saveLocalBookshelfFileName, sb.toString());
     }
 
     public static void addToLocalBookshelf(int aid) {
         if (bookshelf == null)
             loadLocalBookShelf();
 
-        if (bookshelf.indexOf(aid) == -1)
+        if (!bookshelf.contains(aid))
             bookshelf.add(0, aid); // add to the first place
 
         writeLocalBookShelf();
     }
 
     public static void removeFromLocalBookshelf(int aid) {
-        if (bookshelf == null)
+        if (bookshelf == null) {
             loadLocalBookShelf();
+        }
 
         int i = bookshelf.indexOf(aid);
-        if (i != -1)
+        if (i != -1) {
             bookshelf.remove(i);
+        }
 
         writeLocalBookShelf();
     }
@@ -386,18 +389,20 @@ public class GlobalConfig {
     }
 
     public static boolean testInLocalBookshelf(int aid) {
-        if (bookshelf == null)
+        if (bookshelf == null) {
             loadLocalBookShelf();
+        }
 
-        return bookshelf.indexOf(aid) != -1;
+        return bookshelf.contains(aid);
     }
 
-    public static void accessToLocalBookshelf(int aid) {
-        int temp = bookshelf.indexOf(aid);
-        if (aid == -1)
+    public static void moveBookToTheTopOfBookshelf(int aid) {
+        int i = bookshelf.indexOf(aid);
+        if (i == -1) {
             return;
+        }
 
-        bookshelf.remove(temp);
+        bookshelf.remove(i);
         bookshelf.add(0, aid);
 
         writeLocalBookShelf();
@@ -454,13 +459,13 @@ public class GlobalConfig {
 
     public static void writeSearchHistory() {
         // [0what][1what]...
-        String temp = "";
+        StringBuilder temp = new StringBuilder();
         for (int i = 0; i < searchHistory.size(); i++) {
-            temp += "[" + searchHistory.get(i) + "]";
+            temp.append("[").append(searchHistory.get(i)).append("]");
         }
 
         // write file
-        writeFullSaveFileContent(saveSearchHistoryFileName, temp);
+        writeFullSaveFileContent(saveSearchHistoryFileName, temp.toString());
     }
 
     public static ArrayList<String> getSearchHistory() {
@@ -474,7 +479,7 @@ public class GlobalConfig {
         if (searchHistory == null)
             readSearchHistory();
 
-        if (searchHistory.indexOf("[") != -1)
+        if (searchHistory.contains("["))
             return; // harmful
 
         // remove same thing
@@ -498,7 +503,7 @@ public class GlobalConfig {
         if (searchHistory == null)
             readSearchHistory();
 
-        if (searchHistory.indexOf("[") != -1)
+        if (searchHistory.contains("["))
             return; // harmful
 
         // remove same thing
@@ -571,15 +576,16 @@ public class GlobalConfig {
         if (readSaves == null)
             loadReadSaves();
 
-        String t = "";
+        StringBuilder t = new StringBuilder();
         for (int i = 0; i < readSaves.size(); i++) {
             if (i != 0)
-                t += "||";
-            t += readSaves.get(i).cid + ",," + readSaves.get(i).pos + ",,"
-                    + readSaves.get(i).height;
+                t.append("||");
+            t.append(readSaves.get(i).cid).append(",,")
+                    .append(readSaves.get(i).pos).append(",,")
+                    .append(readSaves.get(i).height);
         }
 
-        writeFullSaveFileContent(saveReadSavesFileName, t);
+        writeFullSaveFileContent(saveReadSavesFileName, t.toString());
     }
 
     public static void addReadSavesRecord(int c, int p, int h) {
@@ -664,14 +670,17 @@ public class GlobalConfig {
         if (readSavesV1 == null)
             loadReadSavesV1();
 
-        String t = "";
+        StringBuilder t = new StringBuilder();
         for (int i = 0; i < readSavesV1.size(); i++) {
             if (i != 0)
-                t += "||";
-            t += readSavesV1.get(i).aid + ":" + readSavesV1.get(i).vid + ":" + readSavesV1.get(i).cid + ":"
-                    + readSavesV1.get(i).lineId + ":" + readSavesV1.get(i).wordId;
+                t.append("||");
+            t.append(readSavesV1.get(i).aid).append(":")
+                    .append(readSavesV1.get(i).vid).append(":")
+                    .append(readSavesV1.get(i).cid).append(":")
+                    .append(readSavesV1.get(i).lineId).append(":")
+                    .append(readSavesV1.get(i).wordId);
         }
-        writeFullSaveFileContent(saveReadSavesV1FileName, t);
+        writeFullSaveFileContent(saveReadSavesV1FileName, t.toString());
     }
 
     public static void addReadSavesRecordV1(int aid, int vid, int cid, int lineId, int wordId) {
@@ -727,30 +736,38 @@ public class GlobalConfig {
 
     /** All settings */
     public static void loadAllSetting() {
+        // Verify which storage source to user.
+        lookupInternalStorageOnly = SaveFileMigration.migrationCompleted();
+
+        // Loads all settings.
         allSetting = new ContentValues();
         String h = loadFullSaveFileContent(saveSetting);
 
         String[] sets = h.split("\\|\\|\\|\\|");
         for(String set : sets) {
             String[] temp = set.split("::::");
-            if(temp.length != 2 || temp[0] == null || temp[0].length() == 0 || temp[1] == null || temp[1].length() == 0) continue;
+            if(temp.length != 2 || temp[0] == null || temp[0].isEmpty() || temp[1] == null || temp[1].isEmpty()) continue;
 
             allSetting.put(temp[0], temp[1]);
         }
 
-        if(getFromAllSetting(SettingItems.version) == null || getFromAllSetting(SettingItems.version).equals(""))
+        // Updates settings version.
+        String version = getFromAllSetting(SettingItems.version);
+        if(version == null || version.isEmpty()) {
             setToAllSetting(SettingItems.version, "1");
+        }
+        // Else, reserved for future settings migration.
     }
 
     public static void saveAllSetting() {
         if(allSetting == null) loadAllSetting();
 
-        String result = "";
+        StringBuilder result = new StringBuilder();
         for( String key : allSetting.keySet() ) {
-            if(!result.equals("")) result = result + "||||";
-            result = result + key + "::::" + allSetting.getAsString(key);
+            if(!result.toString().isEmpty()) result.append("||||");
+            result.append(key).append("::::").append(allSetting.getAsString(key));
         }
-        writeFullSaveFileContent(saveSetting, result);
+        writeFullSaveFileContent(saveSetting, result.toString());
     }
 
     @Nullable
@@ -769,82 +786,113 @@ public class GlobalConfig {
     }
 
 
-    /** Novel content */
+    /* Novel content */
     /**
-     * saveNovelContentImage:
+     * Async gets image url and download to save folder's image folder.
      *
-     * Async get image url and download to save folder's image folder
-     *
-     * @param url
-     *            : full http url of target image
+     * @param url full http url of target image
      * @return if file finally exist, if already exist before saving, still
      *          return true; if finally the file does not exist, return false.
      */
     public static boolean saveNovelContentImage(String url) {
         String imgFileName = generateImageFileNameByURL(url);
-        if (!LightCache.testFileExist(getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + imgFileName)
-                && !LightCache.testFileExist(getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + imgFileName)) {
+        String defaultFullPath = getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + imgFileName;
+        String fallbackFullPath = getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + imgFileName;
+
+        if (!LightCache.testFileExist(defaultFullPath) && !LightCache.testFileExist(fallbackFullPath)) {
             // neither of the file exist
             byte[] fileContent = LightNetwork.LightHttpDownload(url);
             if (fileContent == null)
                 return false; // network error
 
-            return LightCache.saveFile(getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator, imgFileName, fileContent, true)
-                || LightCache.saveFile(getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator, imgFileName, fileContent, true);
+            return LightCache.saveFile(defaultFullPath, fileContent, true)
+                    || LightCache.saveFile(fallbackFullPath, fileContent, true);
+        }
+        return true; // file exist
+    }
+
+    public static boolean saveNovelCoverImage(@NonNull String fileName, @NonNull byte[] fileContent) {
+        String defaultFullPath = getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
+        String fallbackFullPath = getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
+
+        if (!LightCache.testFileExist(defaultFullPath) && !LightCache.testFileExist(fallbackFullPath)) {
+            // neither of the file exist
+            return LightCache.saveFile(defaultFullPath, fileContent, true)
+                    || LightCache.saveFile(fallbackFullPath, fileContent, true);
         }
         return true; // file exist
     }
 
     /**
-     * removeNovelContentImage:
+     * Gets existing local saving path of target image.
      *
-     * get image url and delete the corresponding local file
-     *
-     * @param url
-     *            : full http url of target image
-     * @return true if file deleted successfully.
-     */
-    public static boolean removeNovelContentImage(String url) {
-        String imgFileName = generateImageFileNameByURL(url);
-
-        // in fact, one of them deleted is ok, so use "or"
-        return LightCache.deleteFile(getFirstFullSaveFilePath()
-                + imgsSaveFolderName + File.separator, imgFileName)
-                || LightCache.deleteFile(getSecondFullSaveFilePath()
-                + imgsSaveFolderName + File.separator, imgFileName);
-    }
-
-    /**
-     * getAvailableNovolContentImagePath:
-     *
-     * get available local saving path of target image.
-     *
-     * @param fileName
-     *            : just need the fileName
+     * @param fileName just need the fileName
      * @return direct fileName or just null
      */
-    public static String getAvailableNovolContentImagePath(String fileName) {
-        if (LightCache.testFileExist(getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName)) {
-            return getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
-        } else if (LightCache.testFileExist(getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName)) {
-            return getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
-        } else
+    public static String getExistingNovelContentImagePath(String fileName) {
+        String defaultFullPath = getFirstFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
+        String fallbackFullPath = getSecondFullSaveFilePath() + imgsSaveFolderName + File.separator + fileName;
+
+        if (LightCache.testFileExist(defaultFullPath)) {
+            return defaultFullPath;
+        } else if (LightCache.testFileExist(fallbackFullPath)) {
+            return fallbackFullPath;
+        } else {
             return null;
+        }
     }
 
 
     public static boolean isNetworkAvailable(Context context) {
-        ConnectivityManager cm = (ConnectivityManager) context
-                .getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm != null) {
-            NetworkInfo[] info = cm.getAllNetworkInfo();
-            if (info != null) {
-                for(NetworkInfo ni : info) {
-                    if (ni.getState() == NetworkInfo.State.CONNECTED)
-                        return true;
-                }
-            }
+            // connected
+            NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+            return activeNetwork != null;
         }
-        return false;
+        return false; // not connected
+    }
+
+    /* notice */
+    @NonNull
+    public static String loadSavedNotice() {
+        return loadFullSaveFileContent(saveNoticeString);
+    }
+
+    public static void writeTheNotice(@NonNull String noticeStr) {
+        writeFullSaveFileContent(saveNoticeString, noticeStr);
+    }
+
+    public static boolean loadUserInfoSet() {
+        byte[] bytes;
+        if(LightCache.testFileExist(getFirstFullUserAccountSaveFilePath())) {
+            bytes = LightCache.loadFile(getFirstFullUserAccountSaveFilePath());
+        }
+        else if(LightCache.testFileExist(getSecondFullUserAccountSaveFilePath())) {
+            bytes = LightCache.loadFile(getSecondFullUserAccountSaveFilePath());
+        }
+        else {
+            return false; // file read failed
+        }
+
+        try {
+            Log.d("MewX", new String(bytes, "UTF-8"));
+            // TODO: decouple
+            LightUserSession.decAndSetUserFile(new String(bytes, "UTF-8"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false; // exception
+        }
+
+        return true;
+    }
+
+    public static boolean saveUserInfoSet() {
+        LightCache.saveFile(getFirstFullUserAccountSaveFilePath(), LightUserSession.encUserFile().getBytes(), true);
+        if (!LightCache.testFileExist(getFirstFullUserAccountSaveFilePath())) {
+            LightCache.saveFile(getSecondFullUserAccountSaveFilePath(), LightUserSession.encUserFile().getBytes(), true);
+            return LightCache.testFileExist(getSecondFullUserAccountSaveFilePath());
+        }
+        return true;
     }
 }

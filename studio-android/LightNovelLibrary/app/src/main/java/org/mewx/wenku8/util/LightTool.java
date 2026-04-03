@@ -2,7 +2,9 @@ package org.mewx.wenku8.util;
 
 import android.content.Context;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.os.Build;
+import androidx.annotation.NonNull;
 import android.view.Display;
 import android.view.WindowManager;
 
@@ -14,9 +16,10 @@ import java.lang.reflect.InvocationTargetException;
  * Util tools collects.
  */
 public class LightTool {
+    private static Rect displayCutout = new Rect(0, 0, 0, 0);
 
     /* Number related useful functions */
-    public static boolean isInteger(String value) {
+    public static boolean isInteger(@NonNull String value) {
         try {
             Integer.parseInt(value);
             return true;
@@ -25,12 +28,10 @@ public class LightTool {
         }
     }
 
-    public static boolean isDouble(String value) {
+    public static boolean isDouble(@NonNull String value) {
         try {
             Double.parseDouble(value);
-            if (value.contains("."))
-                return true;
-            return false;
+            return value.contains(".");
         } catch (NumberFormatException e) {
             return false;
         }
@@ -68,19 +69,19 @@ public class LightTool {
         return size;
     }
 
-    public static Point getRealScreenSize(Context context) {
-        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        Display display = windowManager.getDefaultDisplay();
-        Point size = new Point();
+    public static void setDisplayCutout(Rect rect) {
+        displayCutout = rect;
+    }
 
-        if (Build.VERSION.SDK_INT >= 17) {
-            display.getRealSize(size);
-        } else if (Build.VERSION.SDK_INT >= 14) {
-            try {
-                size.x = (Integer) Display.class.getMethod("getRawWidth").invoke(display);
-                size.y = (Integer) Display.class.getMethod("getRawHeight").invoke(display);
-            } catch (IllegalAccessException e) {} catch (InvocationTargetException e) {} catch (NoSuchMethodException e) {}
-        }
+    public static Rect getDisplayCutout() {
+        // Make a copy.
+        return new Rect(displayCutout);
+    }
+
+    public static Point getRealScreenSize(Context context) {
+        Point size = new Point();
+        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        windowManager.getDefaultDisplay().getRealSize(size);
         return size;
     }
 

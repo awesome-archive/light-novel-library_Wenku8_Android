@@ -1,15 +1,13 @@
 package org.mewx.wenku8.activity;
 
 import android.content.ContentValues;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.v7.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.GestureDetector;
@@ -22,19 +20,17 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.afollestad.materialdialogs.GravityEnum;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.afollestad.materialdialogs.Theme;
+import org.mewx.wenku8.util.ProgressDialogHelper;
+import org.mewx.wenku8.util.GoogleServicesHelper;
 import com.nostra13.universalimageloader.core.ImageLoader;
-import com.umeng.analytics.MobclickAgent;
 
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.component.ScrollViewNoFling;
 import org.mewx.wenku8.global.GlobalConfig;
 import org.mewx.wenku8.global.api.OldNovelContentParser;
 import org.mewx.wenku8.global.api.VolumeList;
-import org.mewx.wenku8.global.api.Wenku8API;
-import org.mewx.wenku8.util.LightNetwork;
+import org.mewx.wenku8.api.Wenku8API;
+import org.mewx.wenku8.network.LightNetwork;
 
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -51,7 +47,7 @@ public class VerticalReaderActivity extends AppCompatActivity {
     private String from = "";
     private int aid, cid;
     private VolumeList volumeList= null; // for extended function
-    private MaterialDialog pDialog = null;
+    private ProgressDialogHelper pDialog = null;
     private ScrollViewNoFling svTextListLayout = null;
     private LinearLayout TextListLayout = null;
     private List<OldNovelContentParser.NovelContent> nc = null;
@@ -71,6 +67,9 @@ public class VerticalReaderActivity extends AppCompatActivity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.layout_vertical_reader_temp);
 
+        // Init Firebase Analytics on GA4.
+        GoogleServicesHelper.initFirebase(this);
+
         // fetch values
         aid = getIntent().getIntExtra("aid", 1);
         volumeList = (VolumeList) getIntent().getSerializableExtra("volume");
@@ -86,8 +85,8 @@ public class VerticalReaderActivity extends AppCompatActivity {
         getNovelContent();
 
         // get view
-        TextListLayout = (LinearLayout) findViewById(R.id.novel_content_layout);
-        svTextListLayout = (ScrollViewNoFling) findViewById(R.id.content_scrollview);
+        TextListLayout = findViewById(R.id.novel_content_layout);
+        svTextListLayout = findViewById(R.id.content_scrollview);
         svTextListLayout.setOnTouchListener(new View.OnTouchListener() {
             // Gesture detector
             GestureDetector gestureDetector = new GestureDetector(VerticalReaderActivity.this, new GestureDetector.OnGestureListener() {
@@ -145,7 +144,6 @@ public class VerticalReaderActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        MobclickAgent.onResume(this);
 
         // set navigation bar status, remember to disable "setNavigationBarTintEnabled"
         final int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -153,23 +151,17 @@ public class VerticalReaderActivity extends AppCompatActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-        // This work only for android 4.4+
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            getWindow().getDecorView().setSystemUiVisibility(flags);
+        getWindow().getDecorView().setSystemUiVisibility(flags);
 
-            // Code below is to handle presses of Volume up or Volume down.
-            // Without this, after pressing volume buttons, the navigation bar will
-            // show up and won't hide
-            final View decorView = getWindow().getDecorView();
-            decorView.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
-                @Override
-                public void onSystemUiVisibilityChange(int visibility) {
-                    if((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
-                        decorView.setSystemUiVisibility(flags);
-                    }
-                }
-            });
-        }
+        // Code below is to handle presses of Volume up or Volume down.
+        // Without this, after pressing volume buttons, the navigation bar will
+        // show up and won't hide
+        final View decorView = getWindow().getDecorView();
+        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
+            if((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                decorView.setSystemUiVisibility(flags);
+            }
+        });
     }
 
     private void getNovelContent() {
@@ -178,26 +170,14 @@ public class VerticalReaderActivity extends AppCompatActivity {
         final asyncNovelContentTask ast = new asyncNovelContentTask();
         ast.execute(cv);
 
-        pDialog = new MaterialDialog.Builder(this)
-                .theme(Theme.LIGHT)
-                .title(R.string.sorry_old_engine_preprocess)
-                .content(R.string.sorry_old_engine_merging)
-                .progress(false, 1, true)
-                .cancelable(true)
-                .cancelListener(new DialogInterface.OnCancelListener() {
-                    @Override
-                    public void onCancel(DialogInterface dialog) {
-                        ast.cancel(true);
-                        pDialog.dismiss();
-                        pDialog = null;
-                    }
-                })
-                .titleColorRes(R.color.default_text_color_black)
-                .show();
-
-        pDialog.setProgress(0);
-        pDialog.setMaxProgress(1);
-        pDialog.show();
+        pDialog = ProgressDialogHelper.show(this,
+                getString(R.string.sorry_old_engine_merging),
+                /* indeterminate= */ false, /* cancelable= */ true,
+                /* cancelListener= */ dialog -> {
+                    ast.cancel(true);
+                    pDialog.dismiss();
+                    pDialog = null;
+                });
     }
 
     class asyncNovelContentTask extends AsyncTask<ContentValues, Integer, Integer> {
@@ -211,16 +191,19 @@ public class VerticalReaderActivity extends AppCompatActivity {
                     xml = GlobalConfig.loadFullFileFromSaveFolder("novel", cid + ".xml");
                 else {
                     byte[] tempXml = LightNetwork.LightHttpPostConnection(
-                            Wenku8API.getBaseURL(), params[0]);
+                            Wenku8API.BASE_URL, params[0]);
                     if (tempXml == null)
                         return -100;
                     xml = new String(tempXml, "UTF-8");
                 }
 
-                nc = OldNovelContentParser.parseNovelContent(xml, pDialog);
-                if (nc == null || nc.size() == 0) {
-                    Log.e("MewX-Main",
-                            "getNullFromParser (NovelContentParser.parseNovelContent(xml);)");
+                nc = OldNovelContentParser.parseNovelContent(xml, size -> {
+                    if (pDialog != null) {
+                        pDialog.setMaxProgress(size);
+                    }
+                });
+                if (nc.isEmpty()) {
+                    Log.e("MewX-Main", "getNullFromParser (NovelContentParser.parseNovelContent(xml);)");
 
                     // network error or parse failed
                     return -100;
@@ -250,7 +233,7 @@ public class VerticalReaderActivity extends AppCompatActivity {
                     pDialog.setProgress(i);
 
                 switch (nc.get(i).type) {
-                    case 't':
+                    case TEXT:
                         TextView tempTV = new TextView(VerticalReaderActivity.this);
                         if (i == 0) {
                             tempTV.setTextSize(TypedValue.COMPLEX_UNIT_SP,
@@ -272,7 +255,7 @@ public class VerticalReaderActivity extends AppCompatActivity {
                         TextListLayout.addView(tempTV);
                         break;
 
-                    case 'i':
+                    case IMAGE:
                         final ImageView tempIV = new ImageView(VerticalReaderActivity.this);
                         tempIV.setClickable(true);
                         tempIV.setAdjustViewBounds(true);
@@ -282,23 +265,18 @@ public class VerticalReaderActivity extends AppCompatActivity {
                         tempIV.setImageResource(R.drawable.ic_empty_image); // default
 
                         // async loader
-                        final String imgFileName = GlobalConfig
-                                .generateImageFileNameByURL(nc.get(i).content);
-                        final String path = GlobalConfig
-                                .getAvailableNovolContentImagePath(imgFileName);
+                        final String imgFileName = GlobalConfig.generateImageFileNameByURL(nc.get(i).content);
+                        final String path = GlobalConfig.getExistingNovelContentImagePath(imgFileName);
 
                         if (path != null) {
                             ImageLoader.getInstance().displayImage(
                                     "file://" + path, tempIV);
 
-                            tempIV.setOnClickListener(new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    Intent intent = new Intent(VerticalReaderActivity.this, ViewImageDetailActivity.class);
-                                    intent.putExtra("path", path);
-                                    VerticalReaderActivity.this.startActivity(intent);
-                                    VerticalReaderActivity.this.overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
-                                }
+                            tempIV.setOnClickListener(v -> {
+                                Intent intent = new Intent(VerticalReaderActivity.this, ViewImageDetailActivity.class);
+                                intent.putExtra("path", path);
+                                VerticalReaderActivity.this.startActivity(intent);
+                                VerticalReaderActivity.this.overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
                             });
                         } else {
                             // define another asynctask to load image
@@ -308,10 +286,8 @@ public class VerticalReaderActivity extends AppCompatActivity {
                                 @Override
                                 protected String doInBackground(String... params) {
                                     GlobalConfig.saveNovelContentImage(params[0]);
-                                    String name = GlobalConfig
-                                            .generateImageFileNameByURL(params[0]);
-                                    return GlobalConfig
-                                            .getAvailableNovolContentImagePath(name);
+                                    String name = GlobalConfig.generateImageFileNameByURL(params[0]);
+                                    return GlobalConfig.getExistingNovelContentImagePath(name);
                                 }
 
                                 @Override
@@ -319,14 +295,11 @@ public class VerticalReaderActivity extends AppCompatActivity {
                                     ImageLoader.getInstance().displayImage(
                                             "file://" + result, tempIV);
 
-                                    tempIV.setOnClickListener(new View.OnClickListener() {
-                                        @Override
-                                        public void onClick(View v) {
-                                            Intent intent = new Intent(VerticalReaderActivity.this, ViewImageDetailActivity.class);
-                                            intent.putExtra("path", result);
-                                            VerticalReaderActivity.this.startActivity(intent);
-                                            VerticalReaderActivity.this.overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
-                                        }
+                                    tempIV.setOnClickListener(v -> {
+                                        Intent intent = new Intent(VerticalReaderActivity.this, ViewImageDetailActivity.class);
+                                        intent.putExtra("path", result);
+                                        VerticalReaderActivity.this.startActivity(intent);
+                                        VerticalReaderActivity.this.overridePendingTransition(R.anim.fade_in, R.anim.hold); // fade in animation
                                     });
                                 }
 
@@ -346,32 +319,10 @@ public class VerticalReaderActivity extends AppCompatActivity {
 
             // show dialog
             if (GlobalConfig.getReadSavesRecord(cid, TextListLayout.getMeasuredHeight()) > 100) {
-                new MaterialDialog.Builder(VerticalReaderActivity.this)
-                        .callback(new MaterialDialog.ButtonCallback() {
-                            @Override
-                            public void onPositive(MaterialDialog dialog) {
-                                super.onPositive(dialog);
-                                // set scroll view
-                                Handler handler = new Handler();
-                                handler.postDelayed(runnableScroll, 200);
-
-                                Toast.makeText(VerticalReaderActivity.this, "Scroll to = "
-                                                + GlobalConfig.getReadSavesRecord(cid, TextListLayout.getMeasuredHeight()),
-                                        Toast.LENGTH_SHORT).show();
-                            }
-                        })
-                        .theme(Theme.LIGHT)
-                        .titleColorRes(R.color.default_text_color_black)
-                        .backgroundColorRes(R.color.dlgBackgroundColor)
-                        .contentColorRes(R.color.dlgContentColor)
-                        .positiveColorRes(R.color.dlgPositiveButtonColor)
-                        .negativeColorRes(R.color.dlgNegativeButtonColor)
-                        .title(R.string.sorry_old_engine_notify)
-                        .content(R.string.sorry_old_engine_jump)
-                        .contentGravity(GravityEnum.CENTER)
-                        .positiveText(R.string.dialog_positive_sure)
-                        .negativeText(R.string.dialog_negative_biao)
-                        .show();
+                // set scroll view
+                Handler handler = new Handler();
+                handler.postDelayed(runnableScroll, 200);
+                Log.d(VerticalReaderActivity.class.getSimpleName(), "Scroll to = " + GlobalConfig.getReadSavesRecord(cid, TextListLayout.getMeasuredHeight()));
             }
         }
     }
@@ -379,7 +330,6 @@ public class VerticalReaderActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        MobclickAgent.onPause(this);
 
         saveRecord();
     }

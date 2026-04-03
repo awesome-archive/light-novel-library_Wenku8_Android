@@ -1,3 +1,15 @@
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FMewX%2Flight-novel-library_Wenku8_Android.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FMewX%2Flight-novel-library_Wenku8_Android?ref=badge_shield)
+[![Build Status](https://travis-ci.com/MewX/light-novel-library_Wenku8_Android.svg?branch=master)](https://travis-ci.com/MewX/light-novel-library_Wenku8_Android)
+[![Coverage Status](https://coveralls.io/repos/github/MewX/light-novel-library_Wenku8_Android/badge.svg)](https://coveralls.io/github/MewX/light-novel-library_Wenku8_Android)
+:point_left: **HISTORICAL ISSUE AND THAT'S WHAT WE ALL KNOW** :sob:
+
+[<img src="https://raw.githubusercontent.com/MewX/light-novel-library_Wenku8_Android/master/graph-source/google-play-badge.png" width="200px" height="auto" alt="play-store-badge">](https://play.google.com/store/apps/details?id=org.mewx.wenku8)
+
+如果您想打赏我用爱发电的代码，可以点击这个链接帮我充电 ❤️：
+[!["充电按钮"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/mewx)
+
+如果你走失了，可以来TG群：https://t.me/wk8app
+
 文档目录
 ==========
 
@@ -874,3 +886,24 @@ Material Design风格的`轻小说文库`App**完全**开源了！想实践Mater
     of this license document, but changing it is not allowed.
 
     ......
+
+## Contributors
+
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tr>
+    <td align="center"><a href="https://www.gaeblogx.com"><img src="https://avatars0.githubusercontent.com/u/13044821?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Baby Pepper</b></sub></a><br /><a href="https://github.com/MewX/light-novel-library_Wenku8_Android/commits?author=SeraphRoy" title="Code">💻</a></td>
+    <td align="center"><a href="https://github.com/aaassseee"><img src="https://avatars.githubusercontent.com/u/2054978?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Jack Liu</b></sub></a><br /><a href="https://github.com/MewX/light-novel-library_Wenku8_Android/commits?author=aaassseee" title="Code">💻</a></td>
+  </tr>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!

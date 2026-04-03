@@ -28,11 +28,11 @@ import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.annotation.NonNull;
-import android.support.v4.util.Pair;
-import android.support.v4.view.ViewCompat;
-import android.support.v4.view.ViewPager;
-import android.support.v4.view.ViewPager.OnPageChangeListener;
+import androidx.annotation.NonNull;
+import androidx.core.util.Pair;
+import androidx.core.view.ViewCompat;
+import androidx.viewpager.widget.ViewPager;
+import androidx.viewpager.widget.ViewPager.OnPageChangeListener;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
@@ -54,11 +54,11 @@ public class PagerSlidingTabStrip extends HorizontalScrollView {
     private static final float HALF_TRANSP = 0.5f;
 
     public interface CustomTabProvider {
-        public View getCustomTabView(ViewGroup parent, int position);
+        View getCustomTabView(ViewGroup parent, int position);
     }
 
     public interface OnTabReselectedListener {
-        public void onTabReselected(int position);
+        void onTabReselected(int position);
     }
 
     // @formatter:off
@@ -257,16 +257,11 @@ public class PagerSlidingTabStrip extends HorizontalScrollView {
         updateTabStyles();
         getViewTreeObserver().addOnGlobalLayoutListener(new OnGlobalLayoutListener() {
 
-            @SuppressWarnings("deprecation")
             @SuppressLint("NewApi")
             @Override
             public void onGlobalLayout() {
 
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {
-                    getViewTreeObserver().removeGlobalOnLayoutListener(this);
-                } else {
-                    getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                }
+                getViewTreeObserver().removeOnGlobalLayoutListener(this);
 
                 currentPosition = pager.getCurrentItem();
                 currentPositionOffset = 0f;
@@ -314,14 +309,8 @@ public class PagerSlidingTabStrip extends HorizontalScrollView {
                 if (tabTextColor != null) {
                     tab_title.setTextColor(tabTextColor);
                 }
-                // setAllCaps() is only available from API 14, so the upper case is made manually if we are on a
-                // pre-ICS-build
                 if (textAllCaps) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-                        tab_title.setAllCaps(true);
-                    } else {
-                        tab_title.setText(tab_title.getText().toString().toUpperCase(locale));
-                    }
+                    tab_title.setAllCaps(true);
                 }
             }
         }
@@ -393,11 +382,7 @@ public class PagerSlidingTabStrip extends HorizontalScrollView {
         public void onGlobalLayout() {
             View view = tabsContainer.getChildAt(0);
 
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {
-                getViewTreeObserver().removeGlobalOnLayoutListener(this);
-            } else {
-                getViewTreeObserver().removeOnGlobalLayoutListener(this);
-            }
+            getViewTreeObserver().removeOnGlobalLayoutListener(this);
 
             if (isPaddingMiddle) {
                 int mHalfWidthFirstTab = view.getWidth() / 2;

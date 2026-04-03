@@ -1,6 +1,7 @@
 package org.mewx.wenku8.adapter;
 
-import android.support.v7.widget.RecyclerView;
+import android.annotation.SuppressLint;
+import android.os.AsyncTask;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
@@ -8,26 +9,31 @@ import android.widget.ImageView;
 import android.widget.TableRow;
 import android.widget.TextView;
 
-import com.android.volley.Request;
-import com.android.volley.Response;
-import com.android.volley.VolleyError;
-import com.android.volley.toolbox.StringRequest;
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+
 import com.nostra13.universalimageloader.core.ImageLoader;
 
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.global.GlobalConfig;
 import org.mewx.wenku8.global.api.NovelItemInfoUpdate;
-import org.mewx.wenku8.global.api.Wenku8API;
-import org.mewx.wenku8.listener.MyDeleteClickListener;
+import org.mewx.wenku8.api.Wenku8API;
+import org.mewx.wenku8.api.Wenku8Error;
 import org.mewx.wenku8.listener.MyItemClickListener;
 import org.mewx.wenku8.listener.MyItemLongClickListener;
+import org.mewx.wenku8.listener.MyOptionClickListener;
 import org.mewx.wenku8.util.LightCache;
+import org.mewx.wenku8.network.LightNetwork;
+import org.mewx.wenku8.global.api.NovelItemInfoUpdate;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created by MewX on 2015/1/20.
@@ -36,9 +42,10 @@ import java.util.Map;
 public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapterUpdate.ViewHolder> {
 
     private MyItemClickListener mItemClickListener;
-    private MyDeleteClickListener mMyDeleteClickListener;
+    private MyOptionClickListener mMyOptionClickListener;
     private MyItemLongClickListener mItemLongClickListener;
     private List<NovelItemInfoUpdate> mDataset;
+    private Set<Integer> loadingAids = Collections.synchronizedSet(new HashSet<>());
 
     // empty list, then use append method to add list elements
     public NovelItemAdapterUpdate() {
@@ -47,98 +54,82 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
 
     public NovelItemAdapterUpdate(List<NovelItemInfoUpdate> dataset) {
         super();
-        mDataset = null;
         mDataset = dataset;
     }
 
-    public void RefreshDataset(List<NovelItemInfoUpdate> dataset) {
+    public void refreshDataset(List<NovelItemInfoUpdate> dataset) {
         mDataset = dataset;
     }
 
 
     @Override
-    public ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
+    @NonNull
+    public ViewHolder onCreateViewHolder(@NonNull ViewGroup viewGroup, int i) {
         View view = View.inflate(viewGroup.getContext(), R.layout.view_novel_item, null);
-        return new ViewHolder(view, mItemClickListener, mMyDeleteClickListener, mItemLongClickListener);
+        return new ViewHolder(view, mItemClickListener, mMyOptionClickListener, mItemLongClickListener);
     }
 
     @Override
-    public void onBindViewHolder(final ViewHolder viewHolder, int i) {
+    public void onBindViewHolder(@NonNull final ViewHolder viewHolder, int i) {
+        // Check cache first
+        NovelItemInfoUpdate cached = NovelItemInfoUpdate.getFromCache(mDataset.get(i).aid);
+        if (cached != null) {
+            if (GlobalConfig.testInBookshelf() && NovelItemInfoUpdate.LOADING_STRING.equals(cached.latest_chapter) && !NovelItemInfoUpdate.LOADING_STRING.equals(mDataset.get(i).latest_chapter)) {
+                cached.latest_chapter = mDataset.get(i).latest_chapter;
+            }
+            mDataset.set(i, cached);
+            refreshAllFields(viewHolder, cached);
+        } else {
+            // ALWAYS refresh all fields even if it's "Loading..." to avoid ghosting from recycled views.
+            refreshAllFields(viewHolder, mDataset.get(i));
 
-        // judge if empty
-        if(Integer.toString(mDataset.get(i).aid).equals(mDataset.get(i).title) && !viewHolder.isLoading) {
-
-            // this is empty viewholder
-            viewHolder.isLoading = true;
-            final int tempAid = i;
-
-            StringRequest postRequest = new StringRequest(Request.Method.POST, Wenku8API.getBaseURL(),
-                    new Response.Listener<String>()
-                    {
-                        @Override
-                        public void onResponse(String response) {
-                            // response
-                            try {
-                                response = new String(response.getBytes(), "UTF-8");
-                            } catch (UnsupportedEncodingException e) {
-                                e.printStackTrace();
-                            }
-                            //GlobalConfig.wantDebugLog("VolleyResponse", response);
-
-                            // update info
-                            //NovelItemInfoUpdate nuui = new NovelItemInfoUpdate(tempAid);
-                            mDataset.set(tempAid,NovelItemInfoUpdate.parse(response));
-                            refreshAllContent(viewHolder, tempAid);
-                            viewHolder.isLoading = false;
-                        }
-                    },
-                    new Response.ErrorListener()
-                    {
-                        @Override
-                        public void onErrorResponse(VolleyError error) {
-                            // error
-                            viewHolder.isLoading = false;
-                        }
-                    }
-            ) {
-                @Override
-                protected Map<String, String> getParams()
-                {
-                    return Wenku8API.getNovelShortInfoUpdate(mDataset.get(tempAid).aid, GlobalConfig.getCurrentLang());
-                }
-            };
-
-            if(GlobalConfig.volleyRequestQueue != null)
-                GlobalConfig.volleyRequestQueue.add(postRequest); // meet errors
+            // Check if we need to load current item.
+            checkAndLoad(mDataset.get(i).aid, i);
         }
 
-        refreshAllContent(viewHolder, i);
+        // Prefetch next 10 items.
+        for (int k = 1; k <= 10; k++) {
+            if (i + k < mDataset.size()) {
+                checkAndLoad(mDataset.get(i + k).aid, i + k);
+            }
+        }
     }
 
-    private void refreshAllContent( final ViewHolder viewHolder, int i ) {
+    private void checkAndLoad(int aid, int position) {
+        if (mDataset.get(position).isInitialized() && !loadingAids.contains(aid) && NovelItemInfoUpdate.getFromCache(aid) == null) {
+            new AsyncLoadNovelIntro(aid).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        }
+    }
+
+    private void refreshAllFields(final ViewHolder viewHolder, NovelItemInfoUpdate info) {
         // unknown NPE, just make
-        if(viewHolder == null || mDataset == null || mDataset.get(i) == null)
+        if (viewHolder == null || mDataset == null || info == null)
             return;
 
         // set text
-        viewHolder.tvNovelTitle.setText(mDataset.get(i).title);
-        viewHolder.tvNovelAuthor.setText(mDataset.get(i).author);
-        viewHolder.tvNovelStatus.setText(mDataset.get(i).status);
-        viewHolder.tvNovelUpdate.setText(mDataset.get(i).update);
+        viewHolder.tvNovelTitle.setText(info.title);
+        viewHolder.tvNovelAuthor.setText(info.author);
+        viewHolder.tvNovelStatus.setText(info.status);
+        viewHolder.tvNovelUpdate.setText(info.update);
         if(!GlobalConfig.testInBookshelf())
-            viewHolder.tvNovelIntro.setText(mDataset.get(i).intro_short);
+            // show short intro
+            viewHolder.tvNovelIntro.setText(info.intro_short);
+        else if (info.latest_chapter.isEmpty()) {
+            // latest chapter not set, hide it
+            viewHolder.tvNovelIntro.setVisibility(View.GONE);
+        } else {
+            // latest chapter is set, show it
+            viewHolder.tvLatestChapterNameText.setText(viewHolder.tvLatestChapterNameText.getResources().getText(R.string.novel_item_latest_chapter));
+            viewHolder.tvNovelIntro.setText(info.latest_chapter);
+        }
 
-        if(LightCache.testFileExist(GlobalConfig.getFirstStoragePath() + "imgs" + File.separator + mDataset.get(i).aid + ".jpg"))
-            ImageLoader.getInstance().displayImage("file://" + GlobalConfig.getFirstStoragePath() + "imgs" + File.separator + mDataset.get(i).aid + ".jpg", viewHolder.ivNovelCover);
-        else if(LightCache.testFileExist(GlobalConfig.getSecondStoragePath() + "imgs" + File.separator + mDataset.get(i).aid + ".jpg"))
-            ImageLoader.getInstance().displayImage("file://" + GlobalConfig.getSecondStoragePath() + "imgs" + File.separator + mDataset.get(i).aid + ".jpg", viewHolder.ivNovelCover);
+        // FIXME: these imgs folders are actually no in use.
+        if (LightCache.testFileExist(GlobalConfig.getDefaultStoragePath() + "imgs" + File.separator + info.aid + ".jpg"))
+            ImageLoader.getInstance().displayImage("file://" + GlobalConfig.getDefaultStoragePath() + "imgs" + File.separator + info.aid + ".jpg", viewHolder.ivNovelCover);
+        else if (LightCache.testFileExist(GlobalConfig.getBackupStoragePath() + "imgs" + File.separator + info.aid + ".jpg"))
+            ImageLoader.getInstance().displayImage("file://" + GlobalConfig.getBackupStoragePath() + "imgs" + File.separator + info.aid + ".jpg", viewHolder.ivNovelCover);
         else
-            ImageLoader.getInstance().displayImage(Wenku8API.getCoverURL(mDataset.get(i).aid), viewHolder.ivNovelCover);
-    }
-
-    public List<NovelItemInfoUpdate> getDataset() {
-        // reference
-        return mDataset;
+            ImageLoader.getInstance().displayImage(Wenku8API.getCoverURL(info.aid), viewHolder.ivNovelCover);
     }
 
     @Override
@@ -151,8 +142,8 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
         this.mItemClickListener = listener;
     }
 
-    public void setOnDeleteClickListener(MyDeleteClickListener listener) {
-        this.mMyDeleteClickListener = listener;
+    public void setOnDeleteClickListener(MyOptionClickListener listener) {
+        this.mMyOptionClickListener = listener;
     }
 
     public void setOnItemLongClickListener(MyItemLongClickListener listener){
@@ -167,12 +158,9 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
     public static class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, View.OnLongClickListener {
 
         private MyItemClickListener mClickListener;
-        private MyDeleteClickListener mMyDeleteClickListener;
+        private MyOptionClickListener mMyOptionClickListener;
         private MyItemLongClickListener mLongClickListener;
-        public int position;
-        public boolean isLoading = false;
 
-        //public View loadingLayout;
         private ImageButton ibNovelOption;
         private TableRow trNovelIntro;
         public ImageView ivNovelCover;
@@ -181,31 +169,31 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
         public TextView tvNovelAuthor;
         public TextView tvNovelUpdate;
         public TextView tvNovelIntro;
+        TextView tvLatestChapterNameText;
 
-        public ViewHolder(View itemView, MyItemClickListener clickListener, MyDeleteClickListener myDeleteClickListener, MyItemLongClickListener longClickListener) {
+        public ViewHolder(View itemView, MyItemClickListener clickListener, MyOptionClickListener myOptionClickListener, MyItemLongClickListener longClickListener) {
             super(itemView);
             this.mClickListener = clickListener;
-            this.mMyDeleteClickListener = myDeleteClickListener;
+            this.mMyOptionClickListener = myOptionClickListener;
             this.mLongClickListener = longClickListener;
             itemView.findViewById(R.id.item_card).setOnClickListener(this);
             itemView.findViewById(R.id.item_card).setOnLongClickListener(this);
             itemView.findViewById(R.id.novel_option).setOnClickListener(this);
 
             // get all views
-            ibNovelOption = (ImageButton) itemView.findViewById(R.id.novel_option);
-            trNovelIntro = (TableRow) itemView.findViewById(R.id.novel_intro_row);
-            ivNovelCover = (ImageView) itemView.findViewById(R.id.novel_cover);
-            tvNovelTitle = (TextView) itemView.findViewById(R.id.novel_title);
-            tvNovelAuthor = (TextView) itemView.findViewById(R.id.novel_author);
-            tvNovelStatus = (TextView) itemView.findViewById(R.id.novel_status);
-            tvNovelUpdate = (TextView) itemView.findViewById(R.id.novel_update);
-            tvNovelIntro = (TextView) itemView.findViewById(R.id.novel_intro);
+            ibNovelOption = itemView.findViewById(R.id.novel_option);
+            trNovelIntro = itemView.findViewById(R.id.novel_intro_row);
+            ivNovelCover = itemView.findViewById(R.id.novel_cover);
+            tvNovelTitle = itemView.findViewById(R.id.novel_title);
+            tvNovelAuthor = itemView.findViewById(R.id.novel_author);
+            tvNovelStatus = itemView.findViewById(R.id.novel_status);
+            tvNovelUpdate = itemView.findViewById(R.id.novel_update);
+            tvNovelIntro = itemView.findViewById(R.id.novel_intro);
+            tvLatestChapterNameText = itemView.findViewById(R.id.novel_item_text_shortinfo);
 
             // test current fragment
             if(!GlobalConfig.testInBookshelf())
                 ibNovelOption.setVisibility(View.INVISIBLE);
-            else
-                trNovelIntro.setVisibility(View.GONE);
         }
 
         @Override
@@ -218,7 +206,7 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
                     break;
                 case R.id.novel_option:
                     if(mClickListener != null){
-                        mMyDeleteClickListener.onDeleteClick(v, getAdapterPosition());
+                        mMyOptionClickListener.onOptionButtonClick(v, getAdapterPosition());
                     }
                     break;
             }
@@ -230,6 +218,67 @@ public class NovelItemAdapterUpdate extends RecyclerView.Adapter<NovelItemAdapte
                 mLongClickListener.onItemLongClick(v, getAdapterPosition());
             }
             return true;
+        }
+    }
+
+
+    @SuppressLint("StaticFieldLeak")
+    private class AsyncLoadNovelIntro extends AsyncTask<Void, Void, Wenku8Error.ErrorCode> {
+        private final int aid;
+        private String novelIntro;
+
+        AsyncLoadNovelIntro(int aid) {
+            this.aid = aid;
+        }
+
+        @Override
+        protected void onPreExecute() {
+            super.onPreExecute();
+            loadingAids.add(aid); // Mark as loading
+        }
+
+        @Override
+        protected Wenku8Error.ErrorCode doInBackground(Void... params) {
+            try {
+                byte[] res = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL,
+                        Wenku8API.getNovelShortInfoUpdate_CV(aid, GlobalConfig.getCurrentLang()));
+                if (res == null) {
+                    return Wenku8Error.ErrorCode.ERROR_DEFAULT;
+                }
+
+                novelIntro = new String(res, "UTF-8");
+                return Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED;
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+                return Wenku8Error.ErrorCode.ERROR_DEFAULT;
+            }
+        }
+
+        @Override
+        protected void onPostExecute(Wenku8Error.ErrorCode errorCode) {
+            super.onPostExecute(errorCode);
+            loadingAids.remove(aid); // Mark as finished
+
+            if(errorCode == Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
+                // The index might have been changed. We need to find the correct index again.
+                int currentIndex = -1;
+                for (int j = 0; j < mDataset.size(); j ++) {
+                    if (mDataset.get(j).aid == aid) {
+                        currentIndex = j;
+                        break;
+                    }
+                }
+
+                // Update info, but we need to validate the index first.
+                if (currentIndex >= 0) {
+                    NovelItemInfoUpdate info = NovelItemInfoUpdate.parse(novelIntro);
+                    if (info != null) {
+                       NovelItemInfoUpdate.putToCache(info); // Cache the result!
+                       mDataset.set(currentIndex, info);
+                       notifyItemChanged(currentIndex);
+                    }
+                }
+            }
         }
     }
 

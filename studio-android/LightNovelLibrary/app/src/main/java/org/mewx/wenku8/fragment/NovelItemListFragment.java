@@ -5,17 +5,6 @@ import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.Nullable;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.ActivityOptionsCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.util.Pair;
-import android.support.v7.app.ActionBar;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.DefaultItemAnimator;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,46 +12,67 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.ActivityOptionsCompat;
+import androidx.core.util.Pair;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.DefaultItemAnimator;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.snackbar.Snackbar;
+
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.activity.NovelInfoActivity;
 import org.mewx.wenku8.adapter.NovelItemAdapterUpdate;
 import org.mewx.wenku8.global.GlobalConfig;
 import org.mewx.wenku8.global.api.NovelItemInfoUpdate;
-import org.mewx.wenku8.global.api.Wenku8API;
+import org.mewx.wenku8.api.Wenku8API;
 import org.mewx.wenku8.global.api.Wenku8Parser;
 import org.mewx.wenku8.listener.MyItemClickListener;
 import org.mewx.wenku8.listener.MyItemLongClickListener;
-import org.mewx.wenku8.util.LightNetwork;
+import org.mewx.wenku8.network.LightNetwork;
 
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import fr.castorflex.android.smoothprogressbar.SmoothProgressBar;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 public class NovelItemListFragment extends Fragment implements MyItemClickListener, MyItemLongClickListener {
 
-    // type def
-    private final String searchType = "search";
-    private String type, key;
-    private boolean isLoading = false; // judge network thread continue
+    private static final String SEARCH_TYPE = "search";
+
+    private String listType = "";
+    private String searchKey = "";
+    private final AtomicBoolean isLoading = new AtomicBoolean(false);
 
     // members
     private ActionBar actionBar = null;
     private LinearLayoutManager mLayoutManager = null;
     private RecyclerView mRecyclerView = null;
-    private SmoothProgressBar spb = null;
+    private LinearProgressIndicator spb = null;
 
     // novel list info
-    private List<Integer> listNovelItemAid = null; // aid list
-    private List<NovelItemInfoUpdate> listNovelItemInfo = null; // novel info list
+    private List<Integer> listNovelItemAid = new ArrayList<>(); // aid list
+    private List<NovelItemInfoUpdate> listNovelItemInfo = new ArrayList<>(); // novel info list
     private NovelItemAdapterUpdate mAdapter = null;
 
     // page info
     private int currentPage = 1; // default 1
     private int totalPage = 0; // default 0
+
+    public NovelItemListFragment() {
+        // Required empty public constructor
+    }
 
     public static NovelItemListFragment newInstance(Bundle args) {
         NovelItemListFragment fragment = new NovelItemListFragment();
@@ -73,64 +83,61 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        type = getArguments().getString("type");
+        listType = getArguments().getString("type");
         // judge if is 'search'
-        key = type != null && type.equals(searchType) ? getArguments().getString("key") : "";
+        searchKey = listType.equals(SEARCH_TYPE) ? getArguments().getString("key") : "";
 
         actionBar = ((AppCompatActivity) getActivity()).getSupportActionBar();
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View rootView = inflater.inflate(R.layout.fragment_novel_item_list,container,false);
-        rootView.setTag(type); // set TAG
+        rootView.setTag(listType); // set TAG
+
+        // Set warning message.
+        rootView.findViewById(R.id.relay_warning).setOnClickListener(view -> new MaterialAlertDialogBuilder(getContext())
+                .setTitle(getResources().getString(R.string.system_warning))
+                .setMessage(getResources().getString(R.string.relay_warning_full))
+                .setPositiveButton(R.string.dialog_positive_ok, null)
+                .show());
 
         // init values
-        listNovelItemAid = null;
-        listNovelItemInfo = null;
-        currentPage = 1; // default 1
-        totalPage = 0; // default 0
+        if (totalPage == 0) currentPage = 1; // default 1
 
-        mLayoutManager = null;
         mLayoutManager = new LinearLayoutManager(getActivity());
         mLayoutManager.setOrientation(LinearLayoutManager.VERTICAL);
-        mRecyclerView = null;
-        mRecyclerView = (RecyclerView) rootView.findViewById(R.id.novel_item_list);
+        mRecyclerView = rootView.findViewById(R.id.novel_item_list);
         mRecyclerView.setHasFixedSize(false); // set variable size
         mRecyclerView.setItemAnimator(new DefaultItemAnimator());
         mRecyclerView.setLayoutManager(mLayoutManager);
-        mRecyclerView.setAdapter(new RecyclerView.Adapter() {
-            @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-                return null;
-            }
-            @Override
-            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
-            }
-            @Override
-            public int getItemCount() {
-                return 0;
-            }
-        });
 
-        // List request
-        if(type.equals(searchType)) {
-            // update UI
-            spb = (SmoothProgressBar) getActivity().findViewById(R.id.spb);
-            spb.progressiveStart();
-
-            // excute task
-            Toast.makeText(getActivity(),"search",Toast.LENGTH_SHORT).show();
-            AsyncGetSearchResultList asyncGetSearchResultList = new AsyncGetSearchResultList();
-            asyncGetSearchResultList.execute(key);
+        // Reuse existing data if available
+        if (!listNovelItemInfo.isEmpty()) {
+            mAdapter = new NovelItemAdapterUpdate(listNovelItemInfo);
+            mAdapter.setOnItemClickListener(this);
+            mAdapter.setOnItemLongClickListener(this);
+            mRecyclerView.setAdapter(mAdapter);
         }
         else {
-            // Listener
-            mRecyclerView.addOnScrollListener(new MyOnScrollListener());
-            mRecyclerView.addOnScrollListener(new OnHidingScrollListener());
-            AsyncGetNovelItemList asyncGetNovelItemList = new AsyncGetNovelItemList();
-            asyncGetNovelItemList.execute(currentPage);
+            // List request
+            if(listType.equals(SEARCH_TYPE)) {
+                // update UI
+                spb = getActivity().findViewById(R.id.spb);
+                spb.setVisibility(View.VISIBLE);
+    
+                // execute task
+                Toast.makeText(getActivity(),"search",Toast.LENGTH_SHORT).show();
+                AsyncGetSearchResultList asyncGetSearchResultList = new AsyncGetSearchResultList();
+                asyncGetSearchResultList.execute(searchKey);
+            }
+            else {
+                // Listener
+                mRecyclerView.addOnScrollListener(new MyOnScrollListener());
+                mRecyclerView.addOnScrollListener(new OnHidingScrollListener());
+                AsyncGetNovelItemList asyncGetNovelItemList = new AsyncGetNovelItemList();
+                asyncGetNovelItemList.execute(currentPage);
+            }
         }
         return rootView;
     }
@@ -156,19 +163,14 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
         intent.putExtra("from", "list");
         intent.putExtra("title", ((TextView) view.findViewById(R.id.novel_title)).getText());
 
-        if(Build.VERSION.SDK_INT < 21) {
-            startActivity(intent);
-        }
-        else {
-            ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
-                    Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
-                    Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
-            ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
-        }
+        ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
+                Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
+                Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
+        ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
     }
 
     @Override
-    public void onItemLongClick(View view, int postion) {
+    public void onItemLongClick(View view, int position) {
         // empty
     }
 
@@ -176,7 +178,7 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
         int toolbarMarginOffset = 0;
 
         @Override
-        public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+        public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
             super.onScrolled(recyclerView, dx, dy);
 
             toolbarMarginOffset += dy;
@@ -188,33 +190,57 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
     }
 
 
+    private void refreshPartialIdList(List<Integer> newNovelItemAids) {
+        // Some sanity checks.
+        if (newNovelItemAids == null || newNovelItemAids.isEmpty()) {
+            return;
+        }
+
+        // add to total list
+        listNovelItemAid.addAll(newNovelItemAids);
+
+        // Just append new updates.
+        int startIndex = listNovelItemInfo.size();
+
+        // set empty
+        for(Integer aid : newNovelItemAids) {
+            listNovelItemInfo.add(new NovelItemInfoUpdate(aid));
+        }
+
+        if(mAdapter == null) {
+            mAdapter = new NovelItemAdapterUpdate();
+            mAdapter.setOnItemClickListener(this);
+            mAdapter.setOnItemLongClickListener(this);
+        }
+        mAdapter.refreshDataset(listNovelItemInfo);
+
+        if(currentPage == 1 && mRecyclerView != null) {
+            mRecyclerView.setAdapter(mAdapter);
+        }
+        else {
+            mAdapter.notifyItemRangeInserted(startIndex, newNovelItemAids.size());
+        }
+    }
+
     /**
      * Refresh all the list with Integer array.
      * If empty, create;
      */
-    private void refreshIdList() {
-        if(listNovelItemAid==null)
-            listNovelItemAid = new ArrayList<>();
-
-        // set empty list with id only
-        if(listNovelItemInfo == null)
-            listNovelItemInfo = new ArrayList<>();
-        else
-            listNovelItemInfo.clear();
+    private void refreshEntireIdList() {
+        // Not creating new list for incremental data update.
+        listNovelItemInfo.clear();
 
         // set empty
         for(Integer temp : listNovelItemAid) {
             listNovelItemInfo.add(new NovelItemInfoUpdate(temp));
         }
 
-        //if(mAdapter == null) {
         if(mAdapter == null) {
             mAdapter = new NovelItemAdapterUpdate();
             mAdapter.setOnItemClickListener(this);
             mAdapter.setOnItemLongClickListener(this);
         }
-        mAdapter.RefreshDataset(listNovelItemInfo);
-        //mAdapter = new NovelItemAdapterUpdate(listNovelItemInfo);
+        mAdapter.refreshDataset(listNovelItemInfo);
 
         if(currentPage == 1 && mRecyclerView != null) {
             mRecyclerView.setAdapter(mAdapter);
@@ -223,16 +249,9 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
             mAdapter.notifyDataSetChanged();
     }
 
-    private void appendToIdList(List<Integer> l) {
-        if(listNovelItemAid==null)
-            listNovelItemAid = new ArrayList<>();
-        if(l!=null)
-            listNovelItemAid.addAll(l);
-    }
-
     private class MyOnScrollListener extends RecyclerView.OnScrollListener {
         @Override
-        public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+        public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
             super.onScrolled(recyclerView, dx, dy);
 
             int pastVisiblesItems, visibleItemCount, totalItemCount;
@@ -240,78 +259,94 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
             totalItemCount = mLayoutManager.getItemCount();
             pastVisiblesItems = mLayoutManager.findFirstVisibleItemPosition();
 
-            if (!isLoading) {
+            if (!isLoading.get()) {
                 // 滚动到一半的时候加载，即：剩余2个元素的时候就加载
                 if (visibleItemCount + pastVisiblesItems + 2 >= totalItemCount && (totalPage==0 || currentPage < totalPage)) {
                     // load more toast
                     Snackbar.make(mRecyclerView, getResources().getString(R.string.list_loading)
-                                    + "(" + Integer.toString(currentPage + 1) + "/" + Integer.toString(totalPage) + ")",
+                                    + "(" + (currentPage + 1) + "/" + totalPage + ")",
                             Snackbar.LENGTH_SHORT).show();
 
                     // load more thread
-                    AsyncGetNovelItemList asynctask = new AsyncGetNovelItemList();
-                    asynctask.execute(currentPage + 1);
+                    new AsyncGetNovelItemList().execute(currentPage + 1);
                 }
             }
         }
     }
 
     private class AsyncGetNovelItemList extends AsyncTask<Integer, Integer, Integer> {
-        private List<Integer> tempNovelList = null;
+        private boolean usingWenku8Relay = false;
+
+        private List<Integer> tempNovelList = new ArrayList<>();
+
+        private boolean raceCondition;
+
+        AsyncGetNovelItemList() {
+            raceCondition = !isLoading.compareAndSet(false, true);
+        }
+
         @Override
         protected Integer doInBackground(Integer... params) {
-            if(isLoading)
+            // Check if another loading happening.
+            if(raceCondition) {
+                Log.d("MewX", "doInBackground: blocking change");
                 return -1;
-            isLoading = true;
+            }
+
+            // Update the current page to the new page.
             currentPage = params[0];
 
             // params[0] is current page number
-            ContentValues cv = Wenku8API.getNovelList(Wenku8API.getNOVELSORTBY(type), currentPage);
-            byte[] temp = LightNetwork.LightHttpPostConnection( Wenku8API.getBaseURL(), cv);
-            if(temp == null) return -1;
+            ContentValues cv = Wenku8API.getNovelList(Wenku8API.getNovelSortedBy(listType), currentPage);
+            byte[] temp = LightNetwork.LightHttpPostConnection( Wenku8API.BASE_URL, cv);
+            if (temp == null) {
+                return -1;
+            }
             try {
-                tempNovelList = Wenku8Parser.parseNovelItemList(new String(temp, "UTF-8"), currentPage);
+                Log.d("MewX", "doInBackground: loading page " + currentPage);
+                tempNovelList = Wenku8Parser.parseNovelItemList(new String(temp, "UTF-8"));
             }
             catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
             }
 
             // judge result
-            if( tempNovelList == null || tempNovelList.size() == 0 ) {
-                String error = "in AsyncGetNovelItemList: doInBackground: tempNovelList == null || tempNovelList.size() == 0";
-            }
-            else {
-                totalPage = tempNovelList.get(0);
-                tempNovelList.remove(0);
+            if (tempNovelList.isEmpty()) {
+                Log.d("MewX", "in AsyncGetNovelItemList: doInBackground: tempNovelList == null || tempNovelList.size() == 0");
+                return 0;
             }
 
+            totalPage = tempNovelList.get(0);
+            tempNovelList.remove(0);
             return 0;
         }
 
         @Override
         protected void onPostExecute(Integer integer) {
-            if(integer == -1) {
+            // Always reset loading status first, regardless of fragment state.
+            isLoading.set(false);
+
+            // Updating the results only when the fragment is attached correctly.
+            if (!isAdded() || getActivity() == null) {
+                return;
+            }
+
+            if (integer == -1) {
                 // network error
                 return;
             }
-            if(tempNovelList != null && tempNovelList.size()==0) {
-                String error = "in AsyncGetNovelItemList: doInBackground: tempNovelList == null || tempNovelList.size() == 0";
+            if (tempNovelList.isEmpty()) {
+                Log.d("MewX", "in AsyncGetNovelItemList: onPostExecute: tempNovelList == null || tempNovelList.size() == 0");
                 return;
             }
 
-            // add to total list
-            appendToIdList(tempNovelList);
-            tempNovelList = null;
+            refreshPartialIdList(tempNovelList);
 
-//            if(listNovelItemAid==null)
-//                listNovelItemAid = new ArrayList<>();
-//            listNovelItemAid.addAll(tempNovelList);
-            // refresh listif ((View) mainActivity.findViewById(R.id.list_loading) != null)
-            //((View) mainActivity.findViewById(R.id.list_loading)).setVisibility(View.GONE);
-
-            refreshIdList();
-            isLoading = false;
-            super.onPostExecute(integer);
+            // TODO: remove this warning view because all traffic will come from the relay.
+            View relayWarningView = getActivity().findViewById(R.id.relay_warning);
+            if (relayWarningView != null) {
+                relayWarningView.setVisibility(usingWenku8Relay ? View.VISIBLE : View.GONE);
+            }
         }
     }
 
@@ -322,13 +357,13 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
 
             // get search result by novel title
             ContentValues cv = Wenku8API.searchNovelByNovelName(params[0], GlobalConfig.getCurrentLang());
-            byte[] tempListTitle = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), cv);
+            byte[] tempListTitle = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, cv);
             if(tempListTitle == null) return -1;
 
             // purify returned data
             List<Integer> listResultList = new ArrayList<>(); // result list
             try {
-                //Log.i("MewX", new String(tempListTitle, "UTF-8"));
+                Log.d("MewX", new String(tempListTitle, "UTF-8"));
                 Pattern p = Pattern.compile("aid=\'(.*)\'"); // match content between "aid=\'" and "\'"
                 Matcher m = p.matcher(new String(tempListTitle, "UTF-8"));
                 while (m.find())
@@ -339,18 +374,18 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
 
             // get search result by author name
             cv = Wenku8API.searchNovelByAuthorName(params[0], GlobalConfig.getCurrentLang());
-            byte[] tempListName = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), cv);
+            byte[] tempListName = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, cv);
             if(tempListName == null) return -1;
 
             // purify returned data
             List<Integer> listResultList2 = new ArrayList<>(); // result list
             try {
-                Log.i("MewX", new String(tempListName, "UTF-8"));
+                Log.d("MewX", new String(tempListName, "UTF-8"));
                 Pattern p = Pattern.compile("aid=\'(.*)\'"); // match content between "aid=\'" and "\'"
                 Matcher m = p.matcher(new String(tempListName, "UTF-8"));
                 while (m.find()) {
                     listResultList2.add(Integer.valueOf(m.group(1)));
-                    Log.e("MewX", listResultList2.get(listResultList2.size()-1).toString());
+                    Log.d("MewX", listResultList2.get(listResultList2.size()-1).toString());
                 }
             } catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
@@ -368,17 +403,22 @@ public class NovelItemListFragment extends Fragment implements MyItemClickListen
         protected void onPostExecute(Integer integer) {
             super.onPostExecute(integer);
 
-            spb.progressiveStop();
+            // Updating the results only when the fragment is attached correctly.
+            if (!isAdded() || getActivity() == null) {
+                return;
+            }
+
+            spb.setVisibility(View.INVISIBLE);
             if(integer == -1) {
                 Toast.makeText(getActivity(), getResources().getString(R.string.system_network_error),Toast.LENGTH_LONG).show();
                 return;
             }
-            if(listNovelItemAid == null || listNovelItemAid.size() == 0) {
+            if(listNovelItemAid.isEmpty()) {
                 Toast.makeText(getActivity(), getResources().getString(R.string.task_null),Toast.LENGTH_LONG).show();
                 return;
             }
             // show all items
-            refreshIdList();
+            refreshEntireIdList();
         }
     }
 

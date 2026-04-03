@@ -2,9 +2,11 @@ package org.mewx.wenku8.reader.loader;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import androidx.annotation.NonNull;
 
 import org.mewx.wenku8.global.GlobalConfig;
 import org.mewx.wenku8.global.api.OldNovelContentParser;
+import org.mewx.wenku8.global.api.OldNovelContentParser.NovelContentType;
 
 import java.util.List;
 
@@ -16,10 +18,10 @@ import java.util.List;
 public class WenkuReaderLoaderXML extends WenkuReaderLoader {
 
     private int currentIndex = 0;
-    private List<OldNovelContentParser.NovelContent> nc = null; // 't'-text; 'i'-image
+    private List<OldNovelContentParser.NovelContent> nc;
     public String chapterName;
 
-    public WenkuReaderLoaderXML(List<OldNovelContentParser.NovelContent> onc) {
+    public WenkuReaderLoaderXML(@NonNull List<OldNovelContentParser.NovelContent> onc) {
         nc = onc;
     }
 
@@ -43,11 +45,11 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
             }
             else {
                  // last one
-                if(nc.get(currentIndex).type == 't' && wordIndex + 1 < nc.get(currentIndex).content.length()) {
+                if(nc.get(currentIndex).type == NovelContentType.TEXT && wordIndex + 1 < nc.get(currentIndex).content.length()) {
                     // text but not last word
                     return true;
                 }
-                else if(nc.get(currentIndex).type != 't' && wordIndex == 0) {
+                else if(nc.get(currentIndex).type != NovelContentType.TEXT && wordIndex == 0) {
                     // image
                     return true;
                 }
@@ -66,11 +68,11 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
             }
             else {
                 // first one
-                if(nc.get(currentIndex).type == 't' && wordIndex - 1 >= 0) {
+                if(nc.get(currentIndex).type == NovelContentType.TEXT && wordIndex - 1 >= 0) {
                     // one more word ahead
                     return true;
                 }
-                else if(nc.get(currentIndex).type != 't' && wordIndex == nc.get(currentIndex).content.length() - 1)
+                else if(nc.get(currentIndex).type != NovelContentType.TEXT && wordIndex == nc.get(currentIndex).content.length() - 1)
                     // image previous use index last
                     return true;
             }
@@ -103,12 +105,12 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
         if(currentIndex + 1 < nc.size() && currentIndex >= 0) {
             currentIndex++;
             String imgFileName = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-            String path = GlobalConfig.getAvailableNovolContentImagePath(imgFileName);
+            String path = GlobalConfig.getExistingNovelContentImagePath(imgFileName);
 
-            if (path == null || path.equals("")) {
+            if (path == null || path.isEmpty()) {
                 GlobalConfig.saveNovelContentImage(nc.get(currentIndex).content);
                 String name = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-                path = GlobalConfig.getAvailableNovolContentImagePath(name);
+                path = GlobalConfig.getExistingNovelContentImagePath(name);
             }
 
             // load bitmap
@@ -131,6 +133,10 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
         return null;
     }
 
+    /**
+     * Use with cautious! This method copies the whole text for each call!
+     * @return the whole chapter text.
+     */
     @Override
     public String getCurrentAsString() {
         if(currentIndex < nc.size() && currentIndex >= 0) {
@@ -140,16 +146,21 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
     }
 
     @Override
+    public int getCurrentStringLength() {
+        return getStringLength(currentIndex);
+    }
+
+    @Override
     public Bitmap getCurrentAsBitmap() {
         // Async get bitmap from local or internet
         if(currentIndex < nc.size() && currentIndex >= 0) {
             String imgFileName = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-            String path = GlobalConfig.getAvailableNovolContentImagePath(imgFileName);
+            String path = GlobalConfig.getExistingNovelContentImagePath(imgFileName);
 
-            if (path == null || path.equals("")) {
+            if (path == null || path.isEmpty()) {
                 GlobalConfig.saveNovelContentImage(nc.get(currentIndex).content);
                 String name = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-                path = GlobalConfig.getAvailableNovolContentImagePath(name);
+                path = GlobalConfig.getExistingNovelContentImagePath(name);
             }
 
             // load bitmap
@@ -187,12 +198,12 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
         if(currentIndex < nc.size() && currentIndex - 1 >= 0) {
             currentIndex--;
             String imgFileName = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-            String path = GlobalConfig.getAvailableNovolContentImagePath(imgFileName);
+            String path = GlobalConfig.getExistingNovelContentImagePath(imgFileName);
 
-            if (path == null || path.equals("")) {
+            if (path == null || path.isEmpty()) {
                 GlobalConfig.saveNovelContentImage(nc.get(currentIndex).content);
                 String name = GlobalConfig.generateImageFileNameByURL(nc.get(currentIndex).content);
-                path = GlobalConfig.getAvailableNovolContentImagePath(name);
+                path = GlobalConfig.getExistingNovelContentImagePath(name);
             }
 
             // load bitmap
@@ -232,10 +243,10 @@ public class WenkuReaderLoaderXML extends WenkuReaderLoader {
         nc = null;
     }
 
-    private ElementType intepreteOldSign(char s) {
-        switch (s) {
-            case 't': return ElementType.TEXT;
-            case 'i': return ElementType.IMAGE_DEPENDENT;
+    private ElementType intepreteOldSign(NovelContentType type) {
+        switch (type) {
+            case TEXT: return ElementType.TEXT;
+            case IMAGE: return ElementType.IMAGE_DEPENDENT;
             default: return ElementType.TEXT;
         }
     }

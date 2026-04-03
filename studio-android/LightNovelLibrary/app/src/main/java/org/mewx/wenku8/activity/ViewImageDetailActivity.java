@@ -1,83 +1,71 @@
 package org.mewx.wenku8.activity;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
-import android.content.Intent;
-import android.graphics.PorterDuff;
-import android.graphics.drawable.Drawable;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.pm.PackageManager;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import android.provider.MediaStore;
 import android.text.InputType;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
 
-import com.afollestad.materialdialogs.GravityEnum;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.afollestad.materialdialogs.Theme;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
 import com.davemorrissey.labs.subscaleview.ImageSource;
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView;
-import com.nononsenseapps.filepicker.FilePickerActivity;
-import com.readystatesoftware.systembartint.SystemBarTintManager;
-import com.umeng.analytics.MobclickAgent;
+import org.mewx.wenku8.util.GoogleServicesHelper;
 
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.global.GlobalConfig;
 import org.mewx.wenku8.util.LightCache;
 
 import java.io.File;
-import java.util.ArrayList;
+import java.io.IOException;
+import java.io.OutputStream;
 
 /**
  * Created by MewX on 2015/7/28.
  * View large image activity.
  */
-public class ViewImageDetailActivity extends AppCompatActivity {
+public class ViewImageDetailActivity extends BaseMaterialActivity {
+    private static final String TAG = ViewImageDetailActivity.class.getSimpleName();
 
-    private SystemBarTintManager tintManager;
+    private static final int WRITE_EXTERNAL_STORAGE_REQUEST = 100;
+
     private String path;
+    private String fileName;
     private SubsamplingScaleImageView imageView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.layout_view_image_detail);
+        initMaterialStyle(R.layout.layout_view_image_detail, StatusBarColor.DARK);
+
+        // Init Firebase Analytics on GA4.
+        GoogleServicesHelper.initFirebase(this);
 
         // fetch value
         path = getIntent().getStringExtra("path");
-
-        // set indicator enable
-        Toolbar mToolbar = (Toolbar) findViewById(R.id.toolbar_actionbar);
-        setSupportActionBar(mToolbar);
-        final Drawable upArrow = getResources().getDrawable(R.drawable.abc_ic_ab_back_material);
-        if(getSupportActionBar() != null && upArrow != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setHomeButtonEnabled(true);
-            upArrow.setColorFilter(getResources().getColor(R.color.default_white), PorterDuff.Mode.SRC_ATOP);
-            getSupportActionBar().setHomeAsUpIndicator(upArrow);
-        }
-        getSupportActionBar().setTitle(path.split("/")[path.split("/").length-1]);
-
-        // set tint color
-        if (Build.VERSION.SDK_INT >= 16 ) {
-            // Android API 22 has more effects on status bar, so ignore
-            // create our manager instance after the content view is set
-            tintManager = new SystemBarTintManager(this);
-            // enable all tint
-            tintManager.setStatusBarTintEnabled(true);
-            tintManager.setNavigationBarTintEnabled(true);
-            tintManager.setStatusBarAlpha(0.9f);
-            tintManager.setNavigationBarAlpha(0.8f);
-            // set all color
-            tintManager.setTintColor(getResources().getColor(android.R.color.black));
+        fileName = path.contains("/") ? path.split("/")[path.split("/").length - 1] : "default.jpg";
+        Log.d(TAG, "onCreate: path = " + path);
+        Log.d(TAG, "onCreate: fileName = " + fileName);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(fileName);
         }
 
         // set image
-        imageView = (SubsamplingScaleImageView) findViewById(R.id.image_scalable);
+        imageView = findViewById(R.id.image_scalable);
         imageView.setImage(ImageSource.uri(path));
         imageView.setMaxScale(4.0f);
         imageView.setOnClickListener(new View.OnClickListener() {
@@ -91,159 +79,57 @@ public class ViewImageDetailActivity extends AppCompatActivity {
                     hideNavigationBar();
                     findViewById(R.id.toolbar_actionbar).setVisibility(View.INVISIBLE);
                     findViewById(R.id.image_detail_bot).setVisibility(View.INVISIBLE);
-                    if (Build.VERSION.SDK_INT >= 16 ) {
-                        tintManager.setStatusBarAlpha(0.0f);
-                        tintManager.setNavigationBarAlpha(0.0f);
-                    }
+                    setStatusBarAlpha(0.0f);
+                    setNavigationBarAlpha(0.0f);
                 } else {
                     shown = true;
                     showNavigationBar();
                     findViewById(R.id.toolbar_actionbar).setVisibility(View.VISIBLE);
                     findViewById(R.id.image_detail_bot).setVisibility(View.VISIBLE);
-                    if (Build.VERSION.SDK_INT >= 16 ) {
-                        tintManager.setStatusBarAlpha(0.9f);
-                        tintManager.setNavigationBarAlpha(0.8f);
-                    }
+                    setStatusBarAlpha(0.9f);
+                    setNavigationBarAlpha(0.8f);
                 }
             }
         });
 
         // set on click listeners
-        findViewById(R.id.btn_rotate).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                switch (imageView.getOrientation()) {
-                    case SubsamplingScaleImageView.ORIENTATION_0:
-                        imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_90);
-                        break;
-                    case SubsamplingScaleImageView.ORIENTATION_90:
-                        imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_180);
-                        break;
-                    case SubsamplingScaleImageView.ORIENTATION_180:
-                        imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_270);
-                        break;
-                    case SubsamplingScaleImageView.ORIENTATION_270:
-                        imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_0);
-                        break;
-                }
+        findViewById(R.id.btn_rotate).setOnClickListener(v -> {
+            switch (imageView.getOrientation()) {
+                case SubsamplingScaleImageView.ORIENTATION_0:
+                    imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_90);
+                    break;
+                case SubsamplingScaleImageView.ORIENTATION_90:
+                    imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_180);
+                    break;
+                case SubsamplingScaleImageView.ORIENTATION_180:
+                    imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_270);
+                    break;
+                case SubsamplingScaleImageView.ORIENTATION_270:
+                    imageView.setOrientation(SubsamplingScaleImageView.ORIENTATION_0);
+                    break;
             }
         });
-        findViewById(R.id.btn_rotate).setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                Toast.makeText(ViewImageDetailActivity.this, getResources().getString(R.string.reader_rotate), Toast.LENGTH_SHORT).show();
-                return true;
-            }
+        findViewById(R.id.btn_rotate).setOnLongClickListener(v -> {
+            Toast.makeText(ViewImageDetailActivity.this, getResources().getString(R.string.reader_rotate), Toast.LENGTH_SHORT).show();
+            return true;
         });
-        findViewById(R.id.btn_download).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent i = new Intent(ViewImageDetailActivity.this, FilePickerActivity.class);
-                i.putExtra(FilePickerActivity.EXTRA_ALLOW_MULTIPLE, false);
-                i.putExtra(FilePickerActivity.EXTRA_ALLOW_CREATE_DIR, true);
-                i.putExtra(FilePickerActivity.EXTRA_MODE, FilePickerActivity.MODE_DIR);
-                i.putExtra(FilePickerActivity.EXTRA_START_PATH,
-                        GlobalConfig.pathPickedSave == null || GlobalConfig.pathPickedSave.length() == 0 ?
-                                Environment.getExternalStorageDirectory().getPath() : GlobalConfig.pathPickedSave);
-                startActivityForResult(i, 0);
-            }
-        });
-        findViewById(R.id.btn_download).setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                Toast.makeText(ViewImageDetailActivity.this, getResources().getString(R.string.reader_download), Toast.LENGTH_SHORT).show();
-                return true;
-            }
-        });
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == 0 && resultCode == Activity.RESULT_OK) {
-            if (data.getBooleanExtra(FilePickerActivity.EXTRA_ALLOW_MULTIPLE, false)) {
-                // For JellyBean and above
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                    ClipData clip = data.getClipData();
-                    if (clip != null) {
-                        for (int i = 0; i < clip.getItemCount(); i++) {
-                            Uri uri = clip.getItemAt(i).getUri();
-                            // Do something with the URI
-                            runSaveProcedure(uri.toString());
-                        }
-                    }
-                    // For Ice Cream Sandwich
-                } else {
-                    ArrayList<String> paths = data.getStringArrayListExtra(FilePickerActivity.EXTRA_PATHS);
-                    if (paths != null) {
-                        for (String path: paths) {
-                            Uri uri = Uri.parse(path);
-                            // Do something with the URI
-                            runSaveProcedure(uri.toString());
-                        }
-                    }
-                }
+        findViewById(R.id.btn_download).setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, WRITE_EXTERNAL_STORAGE_REQUEST);
             } else {
-                Uri uri = data.getData();
-                // Do something with the URI
-                runSaveProcedure(uri.toString());
+                performSaveImage();
             }
-        }
-    }
-
-    private void runSaveProcedure(String uri) {
-        final String newuri = uri.replaceAll("file://", "");
-        GlobalConfig.pathPickedSave = newuri;
-        new MaterialDialog.Builder(this)
-                .theme(Theme.LIGHT)
-                .title(R.string.dialog_title_save_file_name)
-                .content(getResources().getString(R.string.dialog_content_saved_path) + newuri)
-                .inputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
-                .input( "", "", false, new MaterialDialog.InputCallback() {
-                    @Override
-                    public void onInput(MaterialDialog dialog, final CharSequence input) {
-                        if(LightCache.testFileExist(newuri + File.separator + input + ".jpg")) {
-                            // judge force write
-                            new MaterialDialog.Builder(ViewImageDetailActivity.this)
-                                    .callback(new MaterialDialog.ButtonCallback() {
-                                        @Override
-                                        public void onPositive(MaterialDialog dialog) {
-                                            // copy file from 'path' to 'uri + File.separator + input + ".jpg"'
-                                            LightCache.copyfile(path, newuri + File.separator + input + ".jpg", true);
-                                            Toast.makeText(ViewImageDetailActivity.this, "已保存：" + newuri + File.separator + input + ".jpg", Toast.LENGTH_SHORT).show();
-                                        }
-
-                                        @Override
-                                        public void onNegative(MaterialDialog dialog) {
-                                            super.onNegative(dialog);
-                                            Toast.makeText(ViewImageDetailActivity.this, "目标文件名已存在，未保存。", Toast.LENGTH_SHORT).show();
-                                        }
-                                    })
-                                    .theme(Theme.LIGHT)
-                                    .titleColorRes(R.color.dlgTitleColor)
-                                    .backgroundColorRes(R.color.dlgBackgroundColor)
-                                    .contentColorRes(R.color.dlgContentColor)
-                                    .positiveColorRes(R.color.dlgPositiveButtonColor)
-                                    .negativeColorRes(R.color.dlgNegativeButtonColor)
-                                    .title(R.string.dialog_title_found_file)
-                                    .content(R.string.dialog_content_force_write_file)
-                                    .contentGravity(GravityEnum.CENTER)
-                                    .positiveText(R.string.dialog_positive_yes)
-                                    .negativeText(R.string.dialog_negative_no)
-                                    .show();
-                        }
-                        else {
-                            // copy file from 'path' to 'uri + File.separator + input + ".jpg"'
-                            LightCache.copyfile(path, newuri + File.separator + input + ".jpg", true);
-                            Toast.makeText(ViewImageDetailActivity.this, "已保存：" + newuri + File.separator + input + ".jpg", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                }).show();
+        });
+        findViewById(R.id.btn_download).setOnLongClickListener(v -> {
+            Toast.makeText(ViewImageDetailActivity.this, getResources().getString(R.string.reader_download), Toast.LENGTH_SHORT).show();
+            return true;
+        });
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        MobclickAgent.onResume(this);
 
         showNavigationBar();
     }
@@ -255,23 +141,17 @@ public class ViewImageDetailActivity extends AppCompatActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-        // This work only for android 4.4+
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            getWindow().getDecorView().setSystemUiVisibility(flags);
+        getWindow().getDecorView().setSystemUiVisibility(flags);
 
-            // Code below is to handle presses of Volume up or Volume down.
-            // Without this, after pressing volume buttons, the navigation bar will
-            // show up and won't hide
-            final View decorView = getWindow().getDecorView();
-            decorView.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
-                @Override
-                public void onSystemUiVisibilityChange(int visibility) {
-                    if((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
-                        decorView.setSystemUiVisibility(flags);
-                    }
-                }
-            });
-        }
+        // Code below is to handle presses of Volume up or Volume down.
+        // Without this, after pressing volume buttons, the navigation bar will
+        // show up and won't hide
+        final View decorView = getWindow().getDecorView();
+        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
+            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                decorView.setSystemUiVisibility(flags);
+            }
+        });
     }
 
     private void showNavigationBar() {
@@ -280,37 +160,23 @@ public class ViewImageDetailActivity extends AppCompatActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-        // This work only for android 4.4+
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            getWindow().getDecorView().setSystemUiVisibility(flags);
+        getWindow().getDecorView().setSystemUiVisibility(flags);
 
-            // Code below is to handle presses of Volume up or Volume down.
-            // Without this, after pressing volume buttons, the navigation bar will
-            // show up and won't hide
-            final View decorView = getWindow().getDecorView();
-            decorView.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
-                @Override
-                public void onSystemUiVisibilityChange(int visibility) {
-                    if((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
-                        decorView.setSystemUiVisibility(flags);
-                    }
-                }
-            });
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        MobclickAgent.onPause(this);
+        // Code below is to handle presses of Volume up or Volume down.
+        // Without this, after pressing volume buttons, the navigation bar will
+        // show up and won't hide
+        final View decorView = getWindow().getDecorView();
+        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
+            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                decorView.setSystemUiVisibility(flags);
+            }
+        });
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem menuItem) {
-        switch (menuItem.getItemId()) {
-            case android.R.id.home:
-                onBackPressed();
-                break;
+        if (menuItem.getItemId() == android.R.id.home) {
+            onBackPressed();
         }
         return super.onOptionsItemSelected(menuItem);
     }
@@ -319,5 +185,58 @@ public class ViewImageDetailActivity extends AppCompatActivity {
     public void onBackPressed() {
         super.onBackPressed();
         overridePendingTransition(0, R.anim.fade_out);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == WRITE_EXTERNAL_STORAGE_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            performSaveImage();
+        }
+    }
+
+    private void performSaveImage() {
+        if (saveImageToGallery(path, fileName)) {
+            Toast.makeText(ViewImageDetailActivity.this, "已保存： DCIM/wenku8/" + fileName, Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(ViewImageDetailActivity.this, "保存失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private boolean saveImageToGallery(String sourcePath, String fileName) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues contentValues = new ContentValues();
+            contentValues.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            contentValues.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            contentValues.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + File.separator + "wenku8");
+            contentValues.put(MediaStore.Images.Media.DATE_ADDED, System.currentTimeMillis() / 1000);
+            contentValues.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis());
+
+            ContentResolver resolver = getContentResolver();
+            Uri imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+            if (imageUri == null) return false;
+
+            try (OutputStream outputStream = resolver.openOutputStream(imageUri)) {
+                byte[] data = LightCache.loadFile(sourcePath);
+                if (data == null) return false;
+                outputStream.write(data);
+                return true;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return false;
+            }
+        } else {
+            File dcimDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "wenku8");
+            if (!dcimDir.exists() && !dcimDir.mkdirs()) return false;
+
+            File destFile = new File(dcimDir, fileName);
+            LightCache.copyFile(sourcePath, destFile.getAbsolutePath(), true);
+
+            if (destFile.exists()) {
+                MediaScannerConnection.scanFile(this, new String[]{destFile.getAbsolutePath()}, null, null);
+                return true;
+            }
+            return false;
+        }
     }
 }

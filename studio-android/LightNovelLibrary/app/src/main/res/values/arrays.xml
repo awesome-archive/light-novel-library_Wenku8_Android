@@ -7,6 +7,11 @@
         <item>@string/dialog_option_select_and_update</item>
     </string-array>
 
+    <string-array name="cleanup_option">
+        <item>@string/config_clear_cache</item>
+        <item>@string/dialog_delete_book</item>
+    </string-array>
+
     <string-array name="reader_engine_option">
         <item>@string/dialog_option_reader_engine_v1</item>
         <item>@string/dialog_option_reader_engine_old</item>
@@ -31,4 +36,11 @@
         <item>@string/dialog_option_choose_simpified_chinese</item>
         <item>@string/dialog_option_choose_traditional_chinese</item>
     </string-array>
+
+    <array name="google_progress_colors">
+        <item>@color/blue</item>
+        <item>@color/green</item>
+        <item>@color/red</item>
+        <item>@color/yellow</item>
+    </array>
 </resources>

@@ -12,4 +12,5 @@ public class VolumeList implements Serializable {
     public int vid;
     public boolean inLocal = false;
     public ArrayList<ChapterInfo> chapterList;
+
 }

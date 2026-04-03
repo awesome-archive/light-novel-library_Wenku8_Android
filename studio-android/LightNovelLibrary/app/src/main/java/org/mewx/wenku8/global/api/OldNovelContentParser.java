@@ -1,26 +1,33 @@
 package org.mewx.wenku8.global.api;
 
+import androidx.annotation.NonNull;
+
 import android.util.Log;
-import android.widget.Toast;
-
-import com.afollestad.materialdialogs.MaterialDialog;
-
-import org.mewx.wenku8.MyApp;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 /**
  * Created by MewX on 2015/6/6.
  * Old Novel Content Parser.
  */
 public class OldNovelContentParser {
+    private static final String TAG = OldNovelContentParser.class.getSimpleName();
+
+    public enum NovelContentType {
+        TEXT, IMAGE
+    }
+
     public static class NovelContent {
-        public char type = 't'; // 't' - text (default); 'i' - img
+        public NovelContentType type = NovelContentType.TEXT;
         public String content = "";
     }
 
-    public static List<NovelContent> parseNovelContent(String raw, MaterialDialog pDialog) {
+    private static final String IMAGE_ENTRY = "<!--image-->";
+
+    @NonNull
+    public static List<NovelContent> parseNovelContent(@NonNull String raw, @NonNull IntConsumer setMaxProgress) {
         List<NovelContent> result = new ArrayList<>();
 
         // use split
@@ -39,48 +46,40 @@ public class OldNovelContentParser {
                 continue;
 
             // test
-            temp = t.indexOf("<!--image-->", 0);
+            temp = t.indexOf(IMAGE_ENTRY, 0);
             if (temp == -1) {
                 NovelContent nc = new NovelContent();
-                nc.type = 't';
-                nc.content = t.trim(); //.replaceAll("[ |　]", " ").trim();
+                nc.type = NovelContentType.TEXT;
+                nc.content = t.trim();
                 result.add(nc);
 
                 // update progress
-                if (pDialog != null)
-                    pDialog.setMaxProgress(result.size());
+                setMaxProgress.accept(result.size());
             } else {
-                Log.v("MewX", "img index = " + temp);
-                // nc.content = nc.content.substring(temp + 12,
-                // nc.content.indexOf("<!--image-->", temp + 12));
-
                 // one line contains more than one images
                 temp = 0;
                 while (true) {
-                    temp = t.indexOf("<!--image-->", temp);
+                    temp = t.indexOf(IMAGE_ENTRY, temp);
                     if (temp == -1)
                         break;
 
                     NovelContent nc2 = new NovelContent();
-                    int t2 = t.indexOf("<!--image-->", temp + 12);
+                    int t2 = t.indexOf(IMAGE_ENTRY, temp + IMAGE_ENTRY.length());
                     if (t2 < 0) {
-                        Log.v("MewX", "Breaked in parseNovelContent, t2 = "
-                                + t2);
+                        Log.d(TAG, "Incomplete image pair, t2 = " + t2);
                         NovelContent nc = new NovelContent();
-                        nc.type = 't';
-                        nc.content = t;
+                        nc.type = NovelContentType.TEXT;
+                        nc.content = t.trim();
                         result.add(nc);
                         break;
                     }
-                    nc2.content = t.substring(temp + 12, t2);
-                    nc2.type = 'i';
+                    nc2.content = t.substring(temp + IMAGE_ENTRY.length(), t2);
+                    nc2.type = NovelContentType.IMAGE;
                     result.add(nc2);
-                    temp = t2 + 12;
+                    temp = t2 + IMAGE_ENTRY.length();
 
                     // update progress
-                    if (pDialog != null)
-                        pDialog.setMaxProgress(result.size());
-
+                    setMaxProgress.accept(result.size());
                 }
             }
         }
@@ -89,7 +88,8 @@ public class OldNovelContentParser {
 
     }
 
-    public static List<NovelContent> NovelContentParser_onlyImage(String raw) {
+    @NonNull
+    public static List<NovelContent> NovelContentParser_onlyImage(@NonNull String raw) {
         List<NovelContent> result = new ArrayList<>();
 
         // use split
@@ -97,31 +97,27 @@ public class OldNovelContentParser {
         int temp;
         for (String t : s) {
             // test
-            temp = t.indexOf("<!--image-->", 0);
+            temp = t.indexOf(IMAGE_ENTRY, 0);
             if (temp != -1) {
-                Log.v("MewX", "img index = " + temp);
-                // nc.content = nc.content.substring(temp + 12,
-                // nc.content.indexOf("<!--image-->", temp + 12));
+                Log.d(TAG, "img index = " + temp);
 
                 // one line contains more than one images
                 temp = 0;
                 while (true) {
-                    temp = t.indexOf("<!--image-->", temp);
+                    temp = t.indexOf(IMAGE_ENTRY, temp);
                     if (temp == -1)
                         break;
 
                     NovelContent nc2 = new NovelContent();
-                    int t2 = t.indexOf("<!--image-->", temp + 12);
+                    int t2 = t.indexOf(IMAGE_ENTRY, temp + IMAGE_ENTRY.length());
                     if (t2 < 0) {
-                        Log.v("MewX",
-                                "Breaked in NovelContentParser_onlyImage, t2 = "
-                                        + t2);
+                        Log.d(TAG, "Breaked in NovelContentParser_onlyImage, t2 = " + t2);
                         break;
                     }
-                    nc2.content = t.substring(temp + 12, t2);
-                    nc2.type = 'i';
+                    nc2.content = t.substring(temp + IMAGE_ENTRY.length(), t2);
+                    nc2.type = NovelContentType.IMAGE;
                     result.add(nc2);
-                    temp = t2 + 12;
+                    temp = t2 + IMAGE_ENTRY.length();
 
                 }
             }

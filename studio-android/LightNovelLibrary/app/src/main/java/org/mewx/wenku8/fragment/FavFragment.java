@@ -1,19 +1,10 @@
 package org.mewx.wenku8.fragment;
 
 import android.content.ContentValues;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.ActivityOptionsCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.util.Pair;
-import android.support.v4.widget.SwipeRefreshLayout;
-import android.support.v7.widget.DefaultItemAnimator;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -21,44 +12,53 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.afollestad.materialdialogs.GravityEnum;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.afollestad.materialdialogs.Theme;
-import com.android.volley.ParseError;
-import com.umeng.analytics.MobclickAgent;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.ActivityOptionsCompat;
+import androidx.core.util.Pair;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.DefaultItemAnimator;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import org.apache.http.NameValuePair;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
 import org.mewx.wenku8.MyApp;
 import org.mewx.wenku8.R;
-import org.mewx.wenku8.activity.MainActivity;
 import org.mewx.wenku8.activity.NovelInfoActivity;
 import org.mewx.wenku8.adapter.NovelItemAdapterUpdate;
 import org.mewx.wenku8.global.GlobalConfig;
-import org.mewx.wenku8.global.api.ChapterInfo;
 import org.mewx.wenku8.global.api.NovelItemInfoUpdate;
 import org.mewx.wenku8.global.api.NovelItemMeta;
 import org.mewx.wenku8.global.api.VolumeList;
-import org.mewx.wenku8.global.api.Wenku8API;
-import org.mewx.wenku8.global.api.Wenku8Error;
+import org.mewx.wenku8.api.Wenku8API;
+import org.mewx.wenku8.api.Wenku8Error;
 import org.mewx.wenku8.global.api.Wenku8Parser;
-import org.mewx.wenku8.listener.MyDeleteClickListener;
 import org.mewx.wenku8.listener.MyItemClickListener;
 import org.mewx.wenku8.listener.MyItemLongClickListener;
+import org.mewx.wenku8.listener.MyOptionClickListener;
 import org.mewx.wenku8.util.LightCache;
-import org.mewx.wenku8.util.LightNetwork;
+import org.mewx.wenku8.network.LightNetwork;
+import org.mewx.wenku8.util.ProgressDialogHelper;
 import org.mewx.wenku8.util.LightTool;
-import org.mewx.wenku8.util.LightUserSession;
+import org.mewx.wenku8.network.LightUserSession;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 
-public class FavFragment extends Fragment implements MyItemClickListener, MyItemLongClickListener, MyDeleteClickListener {
+public class FavFragment extends Fragment implements MyItemClickListener, MyItemLongClickListener, MyOptionClickListener {
 
     // local vars
     private SwipeRefreshLayout mSwipeRefreshLayout;
@@ -66,10 +66,10 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
     private int timecount;
 
     // novel list info
-    private List<Integer> listNovelItemAid = null; // aid list
-    private NovelItemAdapterUpdate mAdapter = null;
+    private final List<Integer> listNovelItemAid = new ArrayList<>(); // aid list
+    private final List<NovelItemInfoUpdate> listNovelItemInfo = new ArrayList<>(); // info list
 
-    public static FavFragment newInstance(String param1, String param2) {
+    public static FavFragment newInstance() {
         return new FavFragment();
     }
 
@@ -83,13 +83,13 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
         View rootView = inflater.inflate(R.layout.fragment_fav, container, false);
 
         // find view
-        mSwipeRefreshLayout = (SwipeRefreshLayout) rootView.findViewById(R.id.swipe_refresh_layout);
+        mSwipeRefreshLayout = rootView.findViewById(R.id.swipe_refresh_layout);
 
         // init values
         timecount = 0;
@@ -97,34 +97,13 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
         // view setting
         LinearLayoutManager mLayoutManager = new LinearLayoutManager(getActivity());
         mLayoutManager.setOrientation(LinearLayoutManager.VERTICAL);
-        mRecyclerView = (RecyclerView) rootView.findViewById(R.id.novel_item_list);
+        mRecyclerView = rootView.findViewById(R.id.novel_item_list);
         mRecyclerView.setHasFixedSize(false); // set variable size
         mRecyclerView.setItemAnimator(new DefaultItemAnimator());
         mRecyclerView.setLayoutManager(mLayoutManager);
-        mRecyclerView.setAdapter(new RecyclerView.Adapter() {
-            @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-                return null;
-            }
-
-            @Override
-            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
-            }
-
-            @Override
-            public int getItemCount() {
-                return 0;
-            }
-        }); // an empty one?
 
         mSwipeRefreshLayout.setColorSchemeColors(getResources().getColor(R.color.myAccentColor));
-        mSwipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                AsyncLoadAllCloud alac = new AsyncLoadAllCloud();
-                alac.execute(1);
-            }
-        });
+        mSwipeRefreshLayout.setOnRefreshListener(() -> new AsyncLoadAllFromCloud().execute(1));
 
         return rootView;
     }
@@ -136,73 +115,73 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
         intent.putExtra("aid", listNovelItemAid.get(position));
         intent.putExtra("from", "fav");
         intent.putExtra("title", ((TextView) view.findViewById(R.id.novel_title)).getText());
-        GlobalConfig.accessToLocalBookshelf(listNovelItemAid.get(position)); // sort event
+        GlobalConfig.moveBookToTheTopOfBookshelf(listNovelItemAid.get(position)); // sort event
 
-        if(Build.VERSION.SDK_INT < 21) {
-            startActivity(intent);
-        }
-        else {
-            ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
-                    Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
-                    Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
-            ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
-        }
+        ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
+                Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
+                Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
+        ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
     }
 
     @Override
-    public void onDeleteClick(View view, final int position) {
-        // popup to show delete
-        new MaterialDialog.Builder(getActivity())
-                .callback(new MaterialDialog.ButtonCallback() {
-                    @Override
-                    public void onPositive(MaterialDialog dialog) {
-                        super.onPositive(dialog);
-                        // delete operatio, delete from cloud first, if succeed then delete from local
-                        AsyncRemoveBookFromCloud arbfc = new AsyncRemoveBookFromCloud();
-                        arbfc.execute(listNovelItemAid.get(position));
-                        listNovelItemAid.remove(position);
-                        refreshList(timecount ++);
+    public void onOptionButtonClick(View view, final int position) {
+        new MaterialAlertDialogBuilder(getActivity())
+                .setTitle(R.string.dialog_title_choose_delete_option)
+                .setNegativeButton(R.string.dialog_negative_pass, null)
+                .setItems(R.array.cleanup_option, (dialog, which) -> {
+                    /*
+                     * 0 <string name="dialog_clear_cache">清除缓存</string>
+                     * 1 <string name="dialog_delete_book">删除这本书</string>
+                     */
+                    switch (which) {
+                        case 0:
+                            new MaterialAlertDialogBuilder(getActivity())
+                                    .setMessage(R.string.dialog_sure_to_clear_cache)
+                                    .setPositiveButton(R.string.dialog_positive_sure, (d, w) -> {
+                                        int aid = listNovelItemAid.get(position);
+                                        String novelFullVolume = GlobalConfig.loadFullFileFromSaveFolder("intro", aid + "-volume.xml");
+                                        if(novelFullVolume.isEmpty()) return;
+                                        List<VolumeList> listVolume = Wenku8Parser.getVolumeList(novelFullVolume);
+                                        if(listVolume.isEmpty()) return;
+                                        cleanVolumesCache(listVolume);
+                                    })
+                                    .setNegativeButton(R.string.dialog_negative_preferno, null)
+                                    .show();
+                            break;
+                        case 1:
+                            new MaterialAlertDialogBuilder(getActivity())
+                                    .setMessage(R.string.dialog_content_want_to_delete)
+                                    .setPositiveButton(R.string.dialog_positive_sure, (d, w) -> {
+                                        // Delete operation: delete from in-memory index and cloud first.
+                                        // Then, the async task will remove the deleted book from local bookshelf.
+                                        int aid = listNovelItemAid.get(position);
+                                        listNovelItemAid.remove(position);
+                                        new AsyncRemoveBookFromCloud().execute(aid);
+                                        refreshList(timecount ++);
+                                    })
+                                    .setNegativeButton(R.string.dialog_negative_preferno, null)
+                                    .show();
+                            break;
                     }
                 })
-                .theme(Theme.LIGHT)
-                .content(R.string.dialog_content_want_to_delete)
-                .contentGravity(GravityEnum.CENTER)
-                .positiveText(R.string.dialog_positive_sure)
-                .negativeText(R.string.dialog_negative_preferno)
                 .show();
     }
 
     @Override
     public void onItemLongClick(View view, int position) {
-        // Toast.makeText(getActivity(),"item long click detected", Toast.LENGTH_SHORT).show();
+    }
 
+    private void cleanVolumesCache(List<VolumeList> listVolume) {
+        // remove from local bookshelf, already in bookshelf
+        for (VolumeList vl : listVolume) {
+            LightCache.cleanLocalCache(vl);
+        }
     }
 
     private void refreshList(int time) {
-//        listNovelItemAid = GlobalConfig.getLocalBookshelfList(); // reget
-//        List<NovelItemInfoUpdate> resort = new ArrayList<NovelItemInfoUpdate>();
-//        for(Integer aid : listNovelItemAid) {
-//            for(int i = 0; i < listNovelItemInfo.size(); i ++) {
-//                if(listNovelItemInfo.get(i).aid == aid) {
-//                    resort.add(listNovelItemInfo.get(i));
-//                    listNovelItemInfo.remove(i);
-//                    break;
-//                }
-//            }
-//        }
-//        listNovelItemInfo = resort;
-
-        // awful way
-//        if(alal == null || alal.getStatus() != AsyncTask.Status.RUNNING) {
-//            listNovelItemAid = GlobalConfig.getLocalBookshelfList();
-//            listNovelItemInfo = new ArrayList<NovelItemInfoUpdate>();
-//            alal = new AsyncLoadAllLocal();
-//            alal.execute();
-//        }
         if(time == 0) {
             mSwipeRefreshLayout.setRefreshing(true);
-            AsyncLoadAllCloud alac = new AsyncLoadAllCloud();
-            alac.execute();
+            new AsyncLoadAllFromCloud().execute();
         }
         else {
             loadAllLocal();
@@ -211,53 +190,72 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
 
     private void loadAllLocal() {
         int retValue = 0;
+        boolean datasetChanged = false;
 
         // init
-        listNovelItemAid = GlobalConfig.getLocalBookshelfList();
-        List<NovelItemInfoUpdate> listNovelItemInfo = new ArrayList<>(); // novel info list
+        listNovelItemAid.clear();
+        listNovelItemAid.addAll(GlobalConfig.getLocalBookshelfList());
 
-        // load all meta file
-        for(Integer aid : listNovelItemAid) {
-            String xml = GlobalConfig.loadFullFileFromSaveFolder("intro", aid + "-intro.xml");
-            NovelItemInfoUpdate niiu;
+        // load all metadata file
+        aids:
+        for (int j = 0; j < listNovelItemAid.size(); j++) {
+            int aid = listNovelItemAid.get(j);
+            // See if it's in the list already. Expecting the list will not be more than 100.
+            for (int i = j; i < listNovelItemInfo.size(); i++) {
+                final NovelItemInfoUpdate info = listNovelItemInfo.get(i);
+                if (info.aid == aid) {
+                    // Found but in the same place.
+                    if (i == j) continue aids;
 
-            if (xml.equals("")) {
+                    // Found, not in the same place remove and re-insert.
+                    listNovelItemInfo.remove(i);
+                    listNovelItemInfo.add(j, info);
+                    datasetChanged = true;
+                    continue aids;
+                }
+            }
+
+            // Not found.
+            final String xml = GlobalConfig.loadFullFileFromSaveFolder("intro", aid + "-intro.xml");
+            NovelItemInfoUpdate info;
+            if (xml.isEmpty()) {
                 // the intro file was deleted
-                retValue = -2;
-                niiu = new NovelItemInfoUpdate(aid);
+                retValue = -1;
+                info = new NovelItemInfoUpdate(aid);
             }
             else {
-                niiu = NovelItemInfoUpdate.parse(xml);
+                info = NovelItemInfoUpdate.convertFromMeta(Objects.requireNonNull(Wenku8Parser.parseNovelFullMeta(xml)));
             }
-
-            if(niiu == null) {
-                retValue = -1;
-                continue;
-            }
-            listNovelItemInfo.add(niiu);
+            datasetChanged = true;
+            listNovelItemInfo.add(j, info);
+        }
+        // Trim everything after aid.size().
+        if (listNovelItemInfo.size() > listNovelItemAid.size()) {
+            listNovelItemInfo.subList(listNovelItemAid.size(), listNovelItemInfo.size()).clear();
         }
 
         // result
         if(retValue != 0) {
-            Toast.makeText(getActivity(), "Error: Some intro load failed, please redownload.", Toast.LENGTH_SHORT).show();
-            return;
+            Toast.makeText(getActivity(), getResources().getString(R.string.bookshelf_intro_load_failed), Toast.LENGTH_SHORT).show();
         }
 
-        if(mAdapter == null) {
-            mAdapter = new NovelItemAdapterUpdate();
-            mRecyclerView.setAdapter(mAdapter);
+        // Reuse the adapter and datasets.
+        if (mRecyclerView.getAdapter() == null) {
+            NovelItemAdapterUpdate adapter = new NovelItemAdapterUpdate();
+            adapter.refreshDataset(listNovelItemInfo);
+            adapter.setOnItemClickListener(FavFragment.this);
+            adapter.setOnDeleteClickListener(FavFragment.this);
+            adapter.setOnItemLongClickListener(FavFragment.this);
+            mRecyclerView.setAdapter(adapter);
         }
-        mAdapter.RefreshDataset(listNovelItemInfo);
-        mAdapter.setOnItemClickListener(FavFragment.this);
-        mAdapter.setOnDeleteClickListener(FavFragment.this);
-        mAdapter.setOnItemLongClickListener(FavFragment.this);
-        mAdapter.notifyDataSetChanged();
-//        for(NovelItem)
+        if (datasetChanged) {
+            mRecyclerView.getAdapter().notifyDataSetChanged();
+        }
         mSwipeRefreshLayout.setRefreshing(false);
     }
 
-    private class AsyncLoadAllCloud extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
-        private MaterialDialog md;
+    private class AsyncLoadAllFromCloud extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
+        private ProgressDialogHelper md;
         private boolean isLoading; // check in "doInBackground" to make sure to continue or not
         private boolean forceLoad = false;
 
@@ -268,22 +266,13 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             loadAllLocal();
 
             isLoading = true;
-            md = new MaterialDialog.Builder(getActivity())
-                    .theme(Theme.LIGHT)
-                    .content(R.string.dialog_content_sync)
-                    .progress(false, 1, true)
-                    .cancelable(true)
-                    .cancelListener(new DialogInterface.OnCancelListener() {
-                        @Override
-                        public void onCancel(DialogInterface dialog) {
-                            isLoading = false;
-                            md.dismiss();
-                        }
-                    })
-                    .show();
-            md.setProgress(0);
-            md.setMaxProgress(0);
-            md.show();
+            md = ProgressDialogHelper.show(getActivity(),
+                    getString(R.string.dialog_content_sync),
+                    /* indeterminate= */ false, /* cancelable= */ true, /* cancelListener= */
+                    dialog -> {
+                        isLoading = false;
+                        md.dismiss();
+                    });
         }
 
         @Override
@@ -293,17 +282,17 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
 
             // ! any network problem will interrupt this procedure
             // load bookshelf list, don't save
-            byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getBookshelfListAid(GlobalConfig.getCurrentLang()));
+            byte[] b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getBookshelfListAid(GlobalConfig.getCurrentLang()));
             if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
 
             if(LightTool.isInteger(new String(b))) {
-                if(Wenku8Error.getSystemDefinedErrorCode(Integer.valueOf(new String(b))) == Wenku8Error.ErrorCode.SYSTEM_4_NOT_LOGGED_IN) {
+                if(Wenku8Error.getSystemDefinedErrorCode(Integer.parseInt(new String(b))) == Wenku8Error.ErrorCode.SYSTEM_4_NOT_LOGGED_IN) {
                     // do log in
-                    Wenku8Error.ErrorCode temp = LightUserSession.doLoginFromFile();
+                    Wenku8Error.ErrorCode temp = LightUserSession.doLoginFromFile(GlobalConfig::loadUserInfoSet);
                     if(temp != Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) return temp; // return an error code
 
-                    // rquest again
-                    b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getBookshelfListAid(GlobalConfig.getCurrentLang()));
+                    // request again
+                    b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getBookshelfListAid(GlobalConfig.getCurrentLang()));
                     if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
                 }
             }
@@ -311,12 +300,17 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             // purify returned data
             List<Integer> listResultList = new ArrayList<>(); // result list
             try {
-                Log.e("MewX", new String(b, "UTF-8"));
+                Log.d("MewX", new String(b, "UTF-8"));
 
                 Pattern p = Pattern.compile("aid=\"(.*)\""); // match content between "aid=\"" and "\""
                 Matcher m = p.matcher(new String(b, "UTF-8"));
-                while (m.find())
-                    listResultList.add(Integer.valueOf(m.group(1)));
+                while (m.find()) {
+                    try {
+                        listResultList.add(Integer.valueOf(m.group(1)));
+                    } catch (NumberFormatException e) {
+                        Log.e(FavFragment.class.getSimpleName(), "Found and skipped broken aid.");
+                    }
+                }
             } catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
             }
@@ -326,12 +320,10 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             listAll.addAll(GlobalConfig.getLocalBookshelfList()); // make a copy
             listAll.addAll(listResultList);
 
-            List<Integer> localOnly = new ArrayList<>();
-            localOnly.addAll(listAll);
+            List<Integer> localOnly = new ArrayList<>(listAll);
             localOnly.removeAll(listResultList); // local only
 
-            List<Integer> listDiff = new ArrayList<>();
-            listDiff.addAll(listAll);
+            List<Integer> listDiff = new ArrayList<>(listAll);
             if(!forceLoad) {
                 // cloud only
                 listDiff.removeAll(GlobalConfig.getLocalBookshelfList());
@@ -342,7 +334,7 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
                 listDiff.clear();
                 listDiff.addAll(hs);
             }
-            if(listDiff.size() == 0 && localOnly.size() == 0) {
+            if(listDiff.isEmpty() && localOnly.isEmpty()) {
                 // equal, so exit
                 return Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED;
             }
@@ -353,41 +345,74 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             for(Integer aid : listDiff) {
                 if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
 
-                // download general file
-                String volumeXml, introXml;
+                // download general file using parallel requests
+                String volumeXml, introXml, fullIntroXml;
                 List<VolumeList> vl;
                 NovelItemMeta ni;
                 try {
-                    // fetch volumes
-                    ContentValues cv = Wenku8API.getNovelIndex(aid, GlobalConfig.getCurrentLang());
-                    byte[] tempVolumeXml = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), cv);
-                    if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
-                    if(tempVolumeXml == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
+                    // Create executor for parallel requests.
+                    ExecutorService executor = Executors.newFixedThreadPool(3);
+                    
+                    // Task 1: Fetch volumes.
+                    Callable<byte[]> volumeTask = () -> {
+                        if(!isLoading) return null;
+                        ContentValues cv = Wenku8API.getNovelIndex(aid, GlobalConfig.getCurrentLang());
+                        return LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, cv);
+                    };
+                    
+                    // Task 2: Fetch intro.
+                    Callable<byte[]> introTask = () -> {
+                        if(!isLoading) return null;
+                        return LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL,
+                                Wenku8API.getNovelFullMeta(aid, GlobalConfig.getCurrentLang()));
+                    };
+                    
+                    // Task 3: Fetch full intro (needs to be done after parsing meta, so we'll do it separately)
+                    // Submit first 2 tasks.
+                    Future<byte[]> volumeFuture = executor.submit(volumeTask);
+                    Future<byte[]> introFuture = executor.submit(introTask);
+                    // Wait for results.
+                    byte[] tempVolumeXml = volumeFuture.get();
+                    byte[] tempIntroXml = introFuture.get();
+                    if(!isLoading) {
+                        executor.shutdown();
+                        return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
+                    }
+                    if(tempVolumeXml == null || tempIntroXml == null) {
+                        executor.shutdown();
+                        return Wenku8Error.ErrorCode.NETWORK_ERROR;
+                    }
+                    
+                    // Parse into structures.
                     volumeXml = new String(tempVolumeXml, "UTF-8");
-
-                    // fetch intro
-                    if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
-//                    List<NameValuePair> targVarList = new ArrayList<>();
-//                    targVarList.add(Wenku8API.getNovelFullMeta(aid, GlobalConfig.getCurrentLang()));
-//                    byte[] tempIntroXml = LightNetwork.LightHttpPost(Wenku8API.getBaseURL(), targVarList);
-                    // use short intro
-                    byte[] tempIntroXml = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(),
-                            Wenku8API.getNovelShortInfoUpdate_CV(aid, GlobalConfig.getCurrentLang()));
-                    if (tempIntroXml == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
                     introXml = new String(tempIntroXml, "UTF-8");
-
-                    // parse into structures
                     vl = Wenku8Parser.getVolumeList(volumeXml);
-                    ni = Wenku8Parser.parsetNovelFullMeta(introXml);
-                    if (vl == null || ni == null) return Wenku8Error.ErrorCode.XML_PARSE_FAILED;
+                    ni = Wenku8Parser.parseNovelFullMeta(introXml);
+                    if (vl.isEmpty() || ni == null) {
+                        executor.shutdown();
+                        return Wenku8Error.ErrorCode.XML_PARSE_FAILED;
+                    }
 
-                    if(!isLoading) return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
-                    cv = Wenku8API.getNovelFullIntro(ni.aid, GlobalConfig.getCurrentLang());
-                    byte[] tempFullIntro = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), cv);
+                    // Now fetch full intro (depends on ni.aid from parsing).
+                    if(!isLoading) {
+                        executor.shutdown();
+                        return Wenku8Error.ErrorCode.USER_CANCELLED_TASK;
+                    }
+                    
+                    final int finalAid = ni.aid;
+                    Callable<byte[]> fullIntroTask = () -> {
+                        if(!isLoading) return null;
+                        ContentValues cv = Wenku8API.getNovelFullIntro(finalAid, GlobalConfig.getCurrentLang());
+                        return LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, cv);
+                    };
+                    Future<byte[]> fullIntroFuture = executor.submit(fullIntroTask);
+                    byte[] tempFullIntro = fullIntroFuture.get();
+                    executor.shutdown();
+
                     if (tempFullIntro == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
                     ni.fullIntro = new String(tempFullIntro, "UTF-8");
 
-                    // write into saved file, save from volum -> meta -> add2bookshelf
+                    // Write into saved file, save from volum -> meta -> add2bookshelf.
                     GlobalConfig.writeFullFileIntoSaveFolder("intro", aid + "-volume.xml", volumeXml);
                     GlobalConfig.writeFullFileIntoSaveFolder("intro", aid + "-introfull.xml", ni.fullIntro);
                     GlobalConfig.writeFullFileIntoSaveFolder("intro", aid + "-intro.xml", introXml);
@@ -402,10 +427,9 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             }
 
             // sync local bookshelf, and set ribbon, sync one, delete one
-            List<Integer> copy = new ArrayList<>();
-            copy.addAll(localOnly); // make a copy
+            List<Integer> copy = new ArrayList<>(localOnly); // make a copy
             for(Integer aid : copy) {
-                b = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getAddToBookshelfParams(aid));
+                b = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getAddToBookshelfParams(aid));
                 if(b == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
 
                 try {
@@ -437,7 +461,11 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
             super.onPostExecute(errorCode);
 
             isLoading = false;
-            md.dismiss();
+            try {
+                md.dismiss();
+            } catch (Exception e) {
+                // Ignore the NullPointerException due to dialog is null or IllegalArgumentException due to View not attached to window manager.
+            }
             if(errorCode != Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
                 Toast.makeText(MyApp.getContext(), errorCode.toString(), Toast.LENGTH_SHORT).show();
                 refreshList(timecount ++);
@@ -449,31 +477,28 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
     }
 
     class AsyncRemoveBookFromCloud extends AsyncTask<Integer, Integer, Wenku8Error.ErrorCode> {
-        MaterialDialog md;
+        ProgressDialogHelper md;
         int aid;
 
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
-            md = new MaterialDialog.Builder(getActivity())
-                    .theme(Theme.LIGHT)
-                    .content(R.string.dialog_content_novel_remove_from_cloud)
-                    .contentColorRes(R.color.dlgContentColor)
-                    .progress(true, 0)
-                    .show();
+            md = ProgressDialogHelper.show(getActivity(),
+                    getString(R.string.dialog_content_novel_remove_from_cloud),
+                    /* indeterminate= */ true, /* cancelable= */ false, /* cancelListener= */ null);
         }
 
         @Override
         protected Wenku8Error.ErrorCode doInBackground(Integer... params) {
             // params: aid
             aid = params[0];
-            byte[] bytes = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), Wenku8API.getDelFromBookshelfParams(aid));
+            byte[] bytes = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, Wenku8API.getDelFromBookshelfParams(aid));
             if(bytes == null) return Wenku8Error.ErrorCode.NETWORK_ERROR;
 
             String result;
             try {
                 result = new String(bytes, "UTF-8");
-                Log.e("MewX", result);
+                Log.d("MewX", result);
                 if (!LightTool.isInteger(result))
                     return Wenku8Error.ErrorCode.RETURNED_VALUE_EXCEPTION;
                 if(Wenku8Error.getSystemDefinedErrorCode(Integer.parseInt(result)) != Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED
@@ -487,18 +512,11 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
                     List<VolumeList> listVolume;
                     String novelFullVolume;
                     novelFullVolume = GlobalConfig.loadFullFileFromSaveFolder("intro", aid + "-volume.xml");
-                    if(novelFullVolume == null || novelFullVolume.equals("")) return Wenku8Error.ErrorCode.ERROR_DEFAULT;
+                    if(novelFullVolume.isEmpty()) return Wenku8Error.ErrorCode.ERROR_DEFAULT;
                     listVolume = Wenku8Parser.getVolumeList(novelFullVolume);
-                    if(listVolume == null) return Wenku8Error.ErrorCode.XML_PARSE_FAILED;
+                    if(listVolume.isEmpty()) return Wenku8Error.ErrorCode.XML_PARSE_FAILED;
 
-                    // remove from local bookshelf, already in bookshelf
-                    for (VolumeList tempVl : listVolume) {
-                        for (ChapterInfo tempCi : tempVl.chapterList) {
-                            LightCache.deleteFile(GlobalConfig.getFirstFullSaveFilePath(), "novel" + File.separator + tempCi.cid + ".xml");
-                            LightCache.deleteFile(GlobalConfig.getSecondFullSaveFilePath(), "novel" + File.separator + tempCi.cid + ".xml");
-                        }
-                    }
-
+                    cleanVolumesCache(listVolume);
                     // delete files
                     LightCache.deleteFile(GlobalConfig.getFirstFullSaveFilePath(), "intro" + File.separator + aid + "-intro.xml");
                     LightCache.deleteFile(GlobalConfig.getFirstFullSaveFilePath(), "intro" + File.separator + aid + "-introfull.xml");
@@ -506,18 +524,15 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
                     LightCache.deleteFile(GlobalConfig.getSecondFullSaveFilePath(), "intro" + File.separator + aid + "-intro.xml");
                     LightCache.deleteFile(GlobalConfig.getSecondFullSaveFilePath(), "intro" + File.separator + aid + "-introfull.xml");
                     LightCache.deleteFile(GlobalConfig.getSecondFullSaveFilePath(), "intro" + File.separator + aid + "-volume.xml");
-
                     // remove from bookshelf
                     GlobalConfig.removeFromLocalBookshelf(aid);
                     if (!GlobalConfig.testInLocalBookshelf(aid)) { // not in
                         return Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED;
                     } else {
                         return Wenku8Error.ErrorCode.LOCAL_BOOK_REMOVE_FAILED;
-                        //Toast.makeText(NovelInfoActivity.this, getResources().getString(R.string.bookshelf_error), Toast.LENGTH_SHORT).show();
                     }
                 }
             } catch (UnsupportedEncodingException e) {
-                e.printStackTrace();
                 return Wenku8Error.ErrorCode.BYTE_TO_STRING_EXCEPTION;
             }
         }
@@ -526,34 +541,33 @@ public class FavFragment extends Fragment implements MyItemClickListener, MyItem
         protected void onPostExecute(Wenku8Error.ErrorCode err) {
             super.onPostExecute(err);
 
-            md.dismiss();
-            if(err == Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
-                Toast.makeText(getActivity(), getResources().getString(R.string.bookshelf_removed), Toast.LENGTH_SHORT).show();
+            try {
+                md.dismiss();
+            } catch (Exception e) {
+                // Ignore the NullPointerException due to dialog is null or IllegalArgumentException due to View not attached to window manager.
             }
-            else
+            if (err == Wenku8Error.ErrorCode.SYSTEM_1_SUCCEEDED) {
+                Toast.makeText(getActivity(), getResources().getString(R.string.bookshelf_removed), Toast.LENGTH_SHORT).show();
+                loadAllLocal();
+            } else {
                 Toast.makeText(getActivity(), err.toString(), Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        MobclickAgent.onPageEnd("FavFragment");
         GlobalConfig.LeaveBookshelf();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        MobclickAgent.onPageStart("FavFragment");
         GlobalConfig.EnterBookshelf();
 
         // refresh list
         refreshList(timecount ++);
-//        if(mAdapter != null) {
-//            mAdapter.notifyDataSetChanged();
-//            mRecyclerView.setAdapter(mAdapter);
-//        }
     }
 
 }

@@ -1,139 +1,127 @@
 package org.mewx.wenku8.fragment;
 
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.ActivityOptionsCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.util.Pair;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.jpardogo.android.googleprogressbar.library.GoogleProgressBar;
-import com.umeng.analytics.MobclickAgent;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.ActivityOptionsCompat;
+import androidx.core.util.Pair;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.snackbar.Snackbar;
 
 import org.mewx.wenku8.R;
 import org.mewx.wenku8.activity.MainActivity;
 import org.mewx.wenku8.activity.NovelInfoActivity;
-import org.mewx.wenku8.adapter.NovelItemAdapter;
+import org.mewx.wenku8.adapter.NovelItemAdapterUpdate;
+import org.mewx.wenku8.async.CheckAppNewVersion;
 import org.mewx.wenku8.global.GlobalConfig;
-import org.mewx.wenku8.global.api.NovelItemInfo;
-import org.mewx.wenku8.global.api.NovelItemList;
-import org.mewx.wenku8.global.api.NovelListWithInfoParser;
-import org.mewx.wenku8.global.api.Wenku8API;
+import org.mewx.wenku8.global.api.NovelItemInfoUpdate;
+import org.mewx.wenku8.global.api.custom.NovelListWithInfoParser;
+import org.mewx.wenku8.api.Wenku8API;
 import org.mewx.wenku8.listener.MyItemClickListener;
 import org.mewx.wenku8.listener.MyItemLongClickListener;
-import org.mewx.wenku8.util.LightNetwork;
+import org.mewx.wenku8.network.LightNetwork;
 
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LatestFragment extends Fragment implements MyItemClickListener, MyItemLongClickListener {
-
-    static private final String TAG = "LatestFragment";
 
     // components
     private MainActivity mainActivity = null;
     private LinearLayoutManager mLayoutManager;
-    private RecyclerView mRecyclerView;
-    private TextView mTextView;
+    private RecyclerView mNovelItemListView;
+    private TextView mLoadingStatusTextView;
+    private View mLoadingProgressBar;
+    private TextView mReloadButton;
+    private View mCheckUpdateButton;
+    private View mListLoadingView;
+    private View mRelayWarningView;
 
     // Novel Item info
-    private NovelItemList novelItemList;
-    private List<NovelItemInfo> listNovelItemInfo;
-    private NovelItemAdapter mAdapter;
+    private List<NovelItemInfoUpdate> listNovelItemInfo = new ArrayList<>();
+    private NovelItemAdapterUpdate mAdapter;
     private int currentPage, totalPage; // currentP stores next reading page num, TODO: fix wrong number
 
     // switcher
-    private boolean isLoading;
-    int pastVisiblesItems, visibleItemCount, totalItemCount;
+    private final AtomicBoolean isLoading = new AtomicBoolean(false);
+    int pastVisibleItems, visibleItemCount, totalItemCount;
 
     public LatestFragment() {
         // Required empty public constructor
-    }
-
-    public static LatestFragment newInstance() {
-        return new LatestFragment();
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // get main activity
-        while (mainActivity == null)
-            mainActivity = (MainActivity) getActivity();
-    }
-
-    public NovelItemAdapter getNovelItemAdapter() {
-        return mAdapter;
+        listNovelItemInfo = new ArrayList<>();
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
         View rootView = inflater.inflate(R.layout.fragment_latest, container, false);
 
         // get views
-        mRecyclerView = (RecyclerView) rootView.findViewById(R.id.novel_item_list);
-        mTextView = (TextView) rootView.findViewById(R.id.list_loading_status);
+        mNovelItemListView = rootView.findViewById(R.id.novel_item_list);
+        mLoadingStatusTextView = rootView.findViewById(R.id.list_loading_status);
+        mLoadingProgressBar = rootView.findViewById(R.id.google_progress);
+        mReloadButton = rootView.findViewById(R.id.btn_loading);
+        mCheckUpdateButton = rootView.findViewById(R.id.btn_check_update_home);
+        mListLoadingView = rootView.findViewById(R.id.list_loading);
+        mRelayWarningView = rootView.findViewById(R.id.relay_warning);
 
-        mRecyclerView.setHasFixedSize(true);
+        // Set warning message.
+        mRelayWarningView.setOnClickListener(view -> new MaterialAlertDialogBuilder(getContext())
+                .setTitle(getResources().getString(R.string.system_warning))
+                .setMessage(getResources().getString(R.string.relay_warning_full))
+                .setPositiveButton(R.string.dialog_positive_ok, null)
+                .show());
+
+        mNovelItemListView.setHasFixedSize(true);
         // use a linear layout manager
         mLayoutManager = new LinearLayoutManager(getActivity());
-        mRecyclerView.setLayoutManager(mLayoutManager);
-        mRecyclerView.setAdapter(new RecyclerView.Adapter() {
-            @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) { return null; }
-            @Override
-            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) { }
-            @Override
-            public int getItemCount() { return 0; }
-        });
+        mNovelItemListView.setLayoutManager(mLayoutManager);
 
         // Listener
-        mRecyclerView.addOnScrollListener(new MyOnScrollListener());
+        mNovelItemListView.addOnScrollListener(new MyOnScrollListener());
 
         // set click event
-        rootView.findViewById(R.id.btn_loading).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (isLoading) {
-                    isLoading = false; // set this false as a terminator signal
-
-                } else {
-                    // need to reload novel list all
-                    currentPage = 1;
-                    totalPage = 1;
-                    isLoading = false;
-                    loadNovelList(currentPage);
-                }
-
+        mReloadButton.setOnClickListener(v -> {
+            // To prepare for a loading, need to set the loading status to false.
+            // If it's already loading, then do nothing.
+            if (!isLoading.compareAndSet(true, false)) {
+                // need to reload novel list all
+                currentPage = 1;
+                totalPage = 1;
+                loadNovelList(currentPage);
             }
         });
 
-        // Load novel list
-//        AsyncGetNovelItem agni = new AsyncGetNovelItem();
-//        List<NameValuePair> list = new ArrayList<>();
-//        list.add(Wenku8API.getNovelList(Wenku8API.NOVELSORTBY.lastUpdate, 1));
-//        agni.execute(list);
+        mCheckUpdateButton.setOnClickListener(
+                v -> new CheckAppNewVersion(getActivity(), true).execute());
 
-        // new load novel list
-        // fetch list
+        // fetch initial novel list and reset isLoading
         currentPage = 1;
         totalPage = 1;
-        isLoading = false;
+        isLoading.set(false);
         loadNovelList(currentPage);
 
         return rootView;
@@ -141,19 +129,21 @@ public class LatestFragment extends Fragment implements MyItemClickListener, MyI
 
     private void loadNovelList(int page) {
         // In fact, I don't need to know what it really is.
-        // I just need to get the NOVELSORTBY
-        isLoading = true; // set loading states
+        // I just need to get the NovelSortedBy
+        if (!isLoading.compareAndSet(false, true)) {
+            // Is loading already.
+            return;
+        }
         hideRetryButton();
 
         // fetch list
-        AsyncLoadLastestList ast = new AsyncLoadLastestList();
-        ast.execute(Wenku8API.getNovelListWithInfo(Wenku8API.NOVELSORTBY.lastUpdate, page,
+        AsyncLoadLatestList ast = new AsyncLoadLatestList();
+        ast.execute(Wenku8API.getMewxNovelList(Wenku8API.NovelSortedBy.lastUpdate, page,
                 GlobalConfig.getCurrentLang()));
     }
 
     @Override
     public void onItemClick(View view, final int position) {
-        //Toast.makeText(getActivity(),"item click detected", Toast.LENGTH_SHORT).show();
         if(position < 0 || position >= listNovelItemInfo.size()) {
             // ArrayIndexOutOfBoundsException
             Toast.makeText(getActivity(), "ArrayIndexOutOfBoundsException: " + position + " in size " + listNovelItemInfo.size(), Toast.LENGTH_SHORT).show();
@@ -162,176 +152,197 @@ public class LatestFragment extends Fragment implements MyItemClickListener, MyI
 
         // go to detail activity
         Intent intent = new Intent(getActivity(), NovelInfoActivity.class);
-        intent.putExtra("aid", listNovelItemInfo.get(position).getAid());
+        intent.putExtra("aid", listNovelItemInfo.get(position).aid);
         intent.putExtra("from", "latest");
-        intent.putExtra("title", listNovelItemInfo.get(position).getTitle());
-        if(Build.VERSION.SDK_INT < 21) {
-            startActivity(intent);
-        }
-        else {
-            ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
-                    Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
-                    Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
-            ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
-        }
+        intent.putExtra("title", listNovelItemInfo.get(position).title);
+        ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
+                Pair.create(view.findViewById(R.id.novel_cover), "novel_cover"),
+                Pair.create(view.findViewById(R.id.novel_title), "novel_title"));
+        ActivityCompat.startActivity(getActivity(), intent, options.toBundle());
     }
 
     @Override
-    public void onItemLongClick(View view, int postion) {
+    public void onItemLongClick(View view, int position) {
         // empty
-        onItemClick(view, postion);
+        onItemClick(view, position);
     }
 
+    @Override
+    public void onAttach(@NonNull Context context) {
+        super.onAttach(context);
+        mainActivity = (MainActivity) getActivity();
+    }
 
     @Override
     public void onDetach() {
-        isLoading = false;
         super.onDetach();
+        mainActivity = null;
+        isLoading.set(false);
     }
 
     private class MyOnScrollListener extends RecyclerView.OnScrollListener {
         @Override
-        public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+        public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
             super.onScrolled(recyclerView, dx, dy);
 
             visibleItemCount = mLayoutManager.getChildCount();
             totalItemCount = mLayoutManager.getItemCount();
-            pastVisiblesItems = mLayoutManager.findFirstVisibleItemPosition();
+            pastVisibleItems = mLayoutManager.findFirstVisibleItemPosition();
 
-            if (!isLoading) {
-                // 滚动到一半的时候加载，即：剩余3个元素的时候就加载
-                if (visibleItemCount + pastVisiblesItems + 3 >= totalItemCount) {
-                    isLoading = true;
-
+            // 滚动到一半的时候加载，即：剩余3个元素的时候就加载
+            if (!isLoading.get() && visibleItemCount + pastVisibleItems + 3 >= totalItemCount) {
+                // load more thread
+                if (currentPage <= totalPage) {
                     // load more toast
-                    Snackbar.make(mRecyclerView, getResources().getString(R.string.list_loading)
-                                    + "(" + Integer.toString(currentPage) + "/" + totalPage + ")",
+                    Snackbar.make(mNovelItemListView, getResources().getString(R.string.list_loading)
+                                    + "(" + currentPage + "/" + totalPage + ")",
                             Snackbar.LENGTH_SHORT).show();
 
-                    // load more thread
-//                    AsyncGetNovelItem agni = new AsyncGetNovelItem();
-//                    List<NameValuePair> list = new ArrayList<>();
-//                    list.add(Wenku8API.getNovelList(Wenku8API.NOVELSORTBY.lastUpdate, novelItemList.getCurrentPage() + 1));
-//                    agni.execute(list);
-                    if (currentPage <= totalPage) {
-                        loadNovelList(currentPage);
-                    } else {
-                        Snackbar.make(mRecyclerView, "Every page is loaded!",
-                                Snackbar.LENGTH_SHORT).show();
+                    loadNovelList(currentPage);
+                } else {
+                    // Set isLoading to true to prevent repeating the "loading_done" snackbar
+                    // and causing an infinite UI update loop.
+                    if (isLoading.compareAndSet(false, true)) {
+                        Snackbar.make(mNovelItemListView, getResources().getText(R.string.loading_done), Snackbar.LENGTH_SHORT).show();
                     }
                 }
             }
         }
     }
 
-    class AsyncLoadLastestList extends AsyncTask<ContentValues, Integer, Integer> {
-        // fail return -1
+    class AsyncLoadLatestList extends AsyncTask<ContentValues, Integer, List<NovelItemInfoUpdate>> {
+        private boolean usingWenku8Relay = false;
+        private int numOfItemsToRefresh = 0;
+
+        // fail return null
         @Override
-        protected Integer doInBackground(ContentValues... params) {
-
+        protected List<NovelItemInfoUpdate> doInBackground(ContentValues... params) {
+            List<NovelItemInfoUpdate> newItems = new ArrayList<>();
             try {
-                byte[] tempXml = LightNetwork.LightHttpPostConnection(Wenku8API.getBaseURL(), params[0]);
-                if (tempXml == null)
-                    return -100;
-                String xml = new String(tempXml, "UTF-8");
-                totalPage = NovelListWithInfoParser.getNovelListWithInfoPageNum(xml);
-                List<NovelListWithInfoParser.NovelListWithInfo> l = NovelListWithInfoParser.getNovelListWithInfo(xml);
-                if (l == null)
-                    return -100; // network error
-
-                if (listNovelItemInfo == null)
-                    listNovelItemInfo = new ArrayList<>();
-                for (int i = 0; i < l.size(); i++) {
-                    NovelListWithInfoParser.NovelListWithInfo nlwi = l.get(i);
-
-                    // getImage
-                    // List<NameValuePair> imgP = new
-                    // ArrayList<NameValuePair>();
-                    // imgP.add(Wenku8Interface.getNovelCover(nlwi.aid));
-                    // byte[] img = LightNetwork.LightHttpPost(
-                    // Wenku8Interface.BaseURL, imgP);
-
-                    NovelItemInfo ni = new NovelItemInfo();
-                    ni.setAid(nlwi.aid);
-                    ni.setTitle(nlwi.name);
-                    ni.setAuthor(nlwi.hit + ""); // hit
-                    ni.setUpdate(nlwi.push + ""); // push
-                    ni.setIntro_short(nlwi.fav + ""); // fav
-                    listNovelItemInfo.add(ni);
+                byte[] tempResult = LightNetwork.LightHttpPostConnection(Wenku8API.BASE_URL, params[0]);
+                if (tempResult == null) {
+                    return null;
+                }
+                String json = new String(tempResult, "UTF-8");
+                NovelListWithInfoParser.Result result = NovelListWithInfoParser.parse(json);
+                if (result == null || result.items.isEmpty()) {
+                    return null;
                 }
 
-                // onProgressUpdate(j);
-
+                totalPage = result.pageNum;
+                newItems.addAll(result.items);
             } catch (UnsupportedEncodingException e) {
                 e.printStackTrace();
             }
-            return -1;
+            return newItems;
         }
 
         @Override
-        protected void onProgressUpdate(Integer... values) {
-            return;
-        }
-
-        @Override
-        protected void onPostExecute(Integer result) {
-            if (result == -100) {
+        protected void onPostExecute(List<NovelItemInfoUpdate> result) {
+            if (result == null) {
                 if(!isAdded())
                     return; // detached
 
-                mTextView.setText(getResources().getString(R.string.system_parse_failed));
+                mLoadingStatusTextView.setText(getResources().getString(R.string.system_parse_failed));
                 showRetryButton();
-                isLoading = false;
+                isLoading.set(false);
                 return;
             }
+
+            // Update main list on UI thread.
+            listNovelItemInfo.addAll(result);
+            numOfItemsToRefresh = result.size();
 
             // result:
             // add imageView, only here can fetch the layout2 id!!!
             // hide loading layout
-            if (mAdapter == null) {
-                mAdapter = new NovelItemAdapter(listNovelItemInfo);
+            // Note that after switching between fragments, the adapter has a chance to disappear. So, we need to attach it back.
+            if (mAdapter == null || mNovelItemListView.getAdapter() == null) {
+                mAdapter = new NovelItemAdapterUpdate(listNovelItemInfo);
                 mAdapter.setOnItemClickListener(LatestFragment.this);
                 mAdapter.setOnItemLongClickListener(LatestFragment.this);
-                mRecyclerView.setAdapter(mAdapter);
+                mNovelItemListView.setAdapter(mAdapter);
             }
-            if (mainActivity.findViewById(R.id.list_loading) != null)
-                mainActivity.findViewById(R.id.list_loading).setVisibility(View.GONE);
-            mAdapter.notifyDataSetChanged();
+
+            // Incremental changes
+            if (numOfItemsToRefresh != 0) {
+                mAdapter.notifyItemRangeInserted(listNovelItemInfo.size() - numOfItemsToRefresh, numOfItemsToRefresh);
+            }
 
             currentPage ++; // add when loaded
-            isLoading = false;
+            isLoading.set(false);
+
+            // Exit early if it's not attached.
+            // Note that the null mainActivity used to cause many issues.
+            if (!isAdded() || mainActivity == null) {
+                return;
+            }
+
+            if (mListLoadingView != null) {
+                mListLoadingView.setVisibility(View.GONE);
+            }
+
+            // TODO: remove this warning view because all traffic will come from the relay.
+            if (mRelayWarningView != null) {
+                mRelayWarningView.setVisibility(usingWenku8Relay ? View.VISIBLE : View.GONE);
+            }
         }
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        MobclickAgent.onPageEnd(TAG);
         GlobalConfig.LeaveLatest();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        MobclickAgent.onPageStart(TAG);
         GlobalConfig.EnterLatest();
     }
 
     private void showRetryButton() {
-        if (mainActivity.findViewById(R.id.btn_loading) == null || !isAdded()) return;
-        ((TextView) mainActivity.findViewById(R.id.btn_loading)).setText(getResources().getString(R.string.task_retry));
-        mainActivity.findViewById(R.id.google_progress).setVisibility(View.GONE);
-        mainActivity.findViewById(R.id.btn_loading).setVisibility(View.VISIBLE);
+        if (!isAdded()) {
+            return;
+        }
+
+        if (mReloadButton != null) {
+            mReloadButton.setText(getResources().getString(R.string.task_retry));
+            mReloadButton.setVisibility(View.VISIBLE);
+        }
+
+        if (mLoadingProgressBar != null) {
+            mLoadingProgressBar.setVisibility(View.GONE);
+        }
+
+        if (mCheckUpdateButton != null) {
+            mCheckUpdateButton.setVisibility(View.VISIBLE);
+        }
     }
 
     /**
      * After button pressed, should hide the "retry" button
      */
     private void hideRetryButton() {
-        if (mainActivity.findViewById(R.id.btn_loading) == null) return;
-        mTextView.setText(getResources().getString(R.string.list_loading));
-        mainActivity.findViewById(R.id.google_progress).setVisibility(View.VISIBLE);
-        mainActivity.findViewById(R.id.btn_loading).setVisibility(View.GONE);
+        if (!isAdded()) {
+            return;
+        }
+
+        if (mLoadingStatusTextView != null) {
+            mLoadingStatusTextView.setText(getResources().getString(R.string.list_loading));
+        }
+
+        if (mLoadingProgressBar != null) {
+            mLoadingProgressBar.setVisibility(View.VISIBLE);
+        }
+
+        if (mReloadButton != null) {
+            mReloadButton.setVisibility(View.GONE);
+        }
+
+        if (mCheckUpdateButton != null) {
+            mCheckUpdateButton.setVisibility(View.GONE);
+        }
     }
 
 

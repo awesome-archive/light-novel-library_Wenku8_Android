@@ -3,8 +3,8 @@ package org.mewx.wenku8.reader.slider;
 import android.content.Context;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.v4.os.ParcelableCompat;
-import android.support.v4.os.ParcelableCompatCreatorCallbacks;
+import androidx.core.os.ParcelableCompat;
+import androidx.core.os.ParcelableCompatCreatorCallbacks;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -117,7 +117,7 @@ public class SlidingLayout extends ViewGroup {
     }
 
     public interface OnTapListener {
-        public void onSingleTap(MotionEvent event);
+        void onSingleTap(MotionEvent event);
     }
 
     @Override
@@ -226,8 +226,8 @@ public class SlidingLayout extends ViewGroup {
     }
 
     public interface OnSlideChangeListener {
-        public void onSlideScrollStateChanged(int touchResult);
-        public void onSlideSelected(Object obj);
+        void onSlideScrollStateChanged(int touchResult);
+        void onSlideSelected(Object obj);
     }
 
     public void slideScrollStateChanged(int moveDirection) {

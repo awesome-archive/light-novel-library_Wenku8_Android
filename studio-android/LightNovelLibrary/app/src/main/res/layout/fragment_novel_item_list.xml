@@ -6,12 +6,12 @@
     android:background="@color/myWindowBackground" >
 
     <!-- Novel List -->
-    <android.support.v7.widget.RecyclerView
+    <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/novel_item_list"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scrollbars="vertical"
-        android:fastScrollEnabled="true"/>
+        android:fastScrollEnabled="false"/>
 
     <!-- Loading Frame -->
     <LinearLayout
@@ -51,5 +51,20 @@
             android:text="@string/task_stop"/>
 
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/relay_warning"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/yellow"
+        android:textColor="@color/myPrimaryDarkColor"
+        android:textAlignment="center"
+        android:text="@string/relay_warning"
+        android:singleLine="false"
+        android:minHeight="24dp"
+        android:clickable="true"
+        android:gravity="center_horizontal"
+        android:visibility="gone"
+        android:focusable="true" />
 
 </FrameLayout>
